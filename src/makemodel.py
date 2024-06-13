@@ -37,7 +37,7 @@ def makemodel(model,setupfile):
     global verbosity        # Output level of chatter
     verbosity=int(pyssedsetupdata[pyssedsetupdata[:,0]=="verbosity",1])
     if (verbosity>=30):
-        print ("Running makemodel version 20231115")
+        print ("Running makemodel version 20240605")
 
     if (verbosity>=30):
         print ("Setup file loaded.")
@@ -177,7 +177,9 @@ def makemodel(model,setupfile):
                     modelenergy=bmodelflux*filtinterp
                     modelphotons=modelenergy*bmodelwave/avwave
                     modelflux[j,i+5]=np.sum(modelphotons) # assumes photon counting detector
-                    alambda[k,j,0:4]=modelflux[j,0:4]
+                    # Data headers
+                    for k in np.arange(len(Avs)):
+                        alambda[k,j,0:4]=modelflux[j,0:4]
                     try:
                         unred = np.sum(modelphotons)
                         for k in np.arange(len(Avs)):
@@ -234,7 +236,7 @@ def makemodel(model,setupfile):
 def get_filter_list():
     # Load filter list
     filtfile=np.array2string(pyssedsetupdata[pyssedsetupdata[:,0]=="FilterFile",1])[2:-2]
-    if (verbosity>30):
+    if (verbosity>=30):
         print ("Filter file",filtfile)
     filtdata = np.loadtxt(filtfile, dtype=[('catname',object),('filtname',object),('errname',object),('svoname',object),('datatype',object),('dataref',object),('errtype',object),('mindata',float),('maxdata',float),('maxperr',float),('zptcorr',float)], comments="#", delimiter="\t", unpack=False)
     return filtdata

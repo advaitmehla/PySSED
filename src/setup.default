@@ -5,7 +5,7 @@
 # (e.g. don't introduce whitespace on end of lines, etc.)
 
 # Set the amount of chatter (0 = silent; 10-70 = typical; 99 = debug)
-verbosity	50
+verbosity	30
 
 # Default epoch to use for Gaia (Gaia EDR3 = 2016.0)
 GaiaEpoch	2016.0
@@ -267,7 +267,7 @@ HRDMaxTemp	20000.
 HRDMinLum	0.00001
 HRDMaxLum	1000000.
 
-MakeXSPlots	0
+MakeXSPlots	1
 LumXSPlotFile	../output/xs-lum.png
 XSSpacePlotFile	../output/xs-space.png
 XSCorrnPlotFile	../output/xs-correlation.png

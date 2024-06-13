@@ -23,7 +23,7 @@ Vizier	SDSS16	V/154/sdss16	objID	2008.0	1.4	0.5
 Vizier	CMC15	I/327/cmc15	CMC15	2005.25	1.5	0.5
 Vizier	2MASS	II/246/out	_2MASS	1999.5	1.0	1.0
 #Vizier	DENIS	B/denis/denis	DENIS	1998.5	3.0	1.0
-Vizier	VVV	II/348/vvv2	iauname	2016.0	0.3	1.0
+Vizier	VVV	II/376/vvv4	SrcID	2016.0	0.3	1.0
 Vizier	VHS	II/367/vhs_dr5	SrcID	2016.0	0.3	1.0
 Vizier	WISE	II/328/allwise	AllWISE	2010.25	6.0	1.0
 Vizier	catWISE	II/365/catwise	objID	2010.25	6.0	1.0
