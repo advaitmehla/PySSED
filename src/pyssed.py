@@ -2177,26 +2177,30 @@ def get_area_data(cmdargs,cats,outdir):
         matchr=cats[cats['catname']==catname]['matchr'][0]
         photprocfile=outdir+catname+".npy"
         server=cats[cats['catname']==catname]['server'][0]
-        
+
+        # Add matching radii to co-ordinates
+        if (cmdargs[1]=="rectangle"):
+            h=float(cmdargs[5])+2.*matchr/3600.
+            w=float(cmdargs[4])+2.*matchr/3600.
+            a=float(cmdargs[2])
+            d=float(cmdargs[3])
+            d2=d+w/2.
+            d1=d-w/2.
+        elif (cmdargs[1]=="box"):
+            r1=float(cmdargs[2])-matchr/3600.
+            r2=float(cmdargs[4])+matchr/3600.
+            d1=float(cmdargs[3])-matchr/3600.
+            d2=float(cmdargs[5])+matchr/3600.
+            h=d2-d1
+            w=r2-r1
+            a=(r2+r1)/2.
+            d=(d2+d1)/2.
+        else:
+            d1=0.; d2=0.; w=0.; h=0.; d=0.
+
         # Get fudge factors to add to dec additions to account for curvature
         # Faster than doing spherical trig
         if (trimbox>0):
-            if (cmdargs[1]=="rectangle"):
-                h=float(cmdargs[5])+2.*matchr/3600.
-                w=float(cmdargs[4])+2.*matchr/3600.
-                a=float(cmdargs[2])
-                d=float(cmdargs[3])
-                d2=d+w/2.
-                d1=d-w/2.
-            if (cmdargs[1]=="box"):
-                r1=float(cmdargs[2])-matchr/3600.
-                r2=float(cmdargs[4])+matchr/3600.
-                d1=float(cmdargs[3])-matchr/3600.
-                d2=float(cmdargs[5])+matchr/3600.
-                h=d2-d1
-                w=r2-r1
-                a=(r2+r1)/2.
-                d=(d2+d1)/2.
             noffset=0.
             soffset=0.
             if (d2>0.):
@@ -2254,15 +2258,23 @@ def get_area_data(cmdargs,cats,outdir):
                 catdata=np.expand_dims(phot[d2d.arcsec<float(cmdargs[4])*3600.+matchr],axis=0)
                 catdata=phot[d2d.arcsec<float(cmdargs[4])*3600.+matchr]
             elif (cmdargs[1]=="rectangle"):
+                if (verbosity>=70):
+                    print ("Before trim:",len(phot))
                 if (trimbox>0):
                     catdata=phot[(phot['RA']>=a-w/2.) & (phot['RA']<=a+w/2.) & (phot['Dec']>=d-h/2.) & (phot['Dec']<=d+h/2.)]
                 else:
                     catdata=phot[(phot['RA']>=float(cmdargs[2])-(float(cmdargs[4])/2.-matchr/3600.)/np.cos(np.deg2rad(phot['Dec']))) & (phot['RA']<=float(cmdargs[2])+(float(cmdargs[4])/2.+matchr/3600.)/np.cos(np.deg2rad(phot['Dec']))) & (phot['Dec']>=float(cmdargs[3])-float(cmdargs[5])/2.-matchr/3600.) & (phot['Dec']<=float(cmdargs[3])+float(cmdargs[5])/2.+matchr/3600.)]
+                if (verbosity>=70):
+                    print ("After trim:",len(phot))
             elif (cmdargs[1]=="box"):
+                if (verbosity>=70):
+                    print ("Before trim:",len(phot))
                 if (trimbox>0):
                     catdata=phot[(phot['RA']>=r1) & (phot['RA']<=r2) & (phot['Dec']>=d1) & (phot['Dec']<=d2)]
                 else:
                     catdata=phot[(phot['RA']>=float(cmdargs[2])-matchr/3600.) & (phot['RA']<=float(cmdargs[4])+matchr/3600.) & (phot['Dec']>=float(cmdargs[3])-matchr/3600.) & (phot['Dec']<=float(cmdargs[5])+matchr/3600.)]
+                if (verbosity>=70):
+                    print ("After trim:",len(phot))
             if (len(catdata)>0):
                 if (verbosity >=50):
                     print ("Queried",catname,"- found",len(catdata[0]),"objects ->",photprocfile)
@@ -2396,12 +2408,16 @@ def get_sed_multiple(method="",ra1=0.,ra2=0.,dec1=0.,dec2=0.):
         trimbox=int(pyssedsetupdata[pyssedsetupdata[:,0]=="TrimBox",1][0])
         if (trimbox>0):
             if (verbosity>50):
-                print ("Trimming box edges to fit RA amd Dec limits")
+                print ("Trimming box edges to fit RA amd Dec limits",ra1,ra2,dec1,dec2)
+            if (verbosity>60):
+                print ("Currently:",len(compiledseds))
             ras=np.array([a[0][3] for a in compiledanc])
-            decs=np.array([a[0][4] for a in compiledanc])
-            compiledseds=compiledseds[(ras>=ra1) & (ras<ra2) & (decs>=dec1) & (decs<dec2)]
-            compiledanc=compiledanc[(ras>=ra1) & (ras<ra2) & (decs>=dec1) & (decs<dec2)]
-            sourcedata=sourcedata[(ras>=ra1) & (ras<ra2) & (decs>=dec1) & (decs<dec2)]
+            decs=np.array([a[1][3] for a in compiledanc])
+            compiledseds=compiledseds[(ras>=ra1) & (ras<=ra2) & (decs>=dec1) & (decs<=dec2)]
+            compiledanc=compiledanc[(ras>=ra1) & (ras<=ra2) & (decs>=dec1) & (decs<=dec2)]
+            sourcedata=sourcedata[(ras>=ra1) & (ras<=ra2) & (decs>=dec1) & (decs<=dec2)]
+            if (verbosity>60):
+                print ("Now:",len(compiledseds))
 
     return compiledseds,compiledanc,sourcedata
 
