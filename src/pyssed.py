@@ -1623,6 +1623,7 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
                 warnings.filterwarnings("ignore", message="invalid value encountered in true_divide")
                 warnings.filterwarnings("ignore", message="invalid value encountered in divide")
                 warnings.filterwarnings("ignore", message="divide by zero encountered in log10")
+                warnings.filterwarnings("ignore", message="overflow encountered in scalar power")
                 ferr=magerr/mag
                 magerr=-2.5*np.log10(1.-ferr)
                 mag=22.5-2.5*np.log10(mag)
@@ -2177,14 +2178,57 @@ def get_area_data(cmdargs,cats,outdir):
         photprocfile=outdir+catname+".npy"
         server=cats[cats['catname']==catname]['server'][0]
         
+        # Get fudge factors to add to dec additions to account for curvature
+        # Faster than doing spherical trig
+        if (trimbox>0):
+            if (cmdargs[1]=="rectangle"):
+                h=float(cmdargs[5])+2.*matchr/3600.
+                w=float(cmdargs[4])+2.*matchr/3600.
+                a=float(cmdargs[2])
+                d=float(cmdargs[3])
+                d2=d+w/2.
+                d1=d-w/2.
+            if (cmdargs[1]=="box"):
+                r1=float(cmdargs[2])-matchr/3600.
+                r2=float(cmdargs[4])+matchr/3600.
+                d1=float(cmdargs[3])-matchr/3600.
+                d2=float(cmdargs[5])+matchr/3600.
+                h=d2-d1
+                w=r2-r1
+                a=(r2+r1)/2.
+                d=(d2+d1)/2.
+            noffset=0.
+            soffset=0.
+            if (d2>0.):
+                noffset=0.0002*(w/2.)**2.
+            if (d1<0.):
+                soffset=0.0002*(w/2.)**2.
+            d2+=noffset
+            d1-=soffset
+            h+=noffset+soffset
+            d+=noffset/2.-soffset/2.
+            if (verbosity>80.):
+                print ("Trimbox altered RA and Dec to:")
+                print (a,d)
+                print ("Width and height:")
+                print (w,h)
+                print ("Declination range:")
+                print (d1,d2)
+            if (d2>90.):
+                print_warn ("TrimBox fail: Maximum declination greater than 90 degrees.")
+                print_warn ("Try smaller region or cone search on celestial pole")
+            if (d1<-90.):
+                print_warn ("TrimBox fail: Minimum declination greater than -90 degrees.")
+                print_warn ("Try smaller region or cone search on celestial pole")
+        
         if (server=="Vizier"):
             try: # If data
                 if (cmdargs[1]=="cone"):
                     catdata=query_vizier(cat=cat,ra=float(cmdargs[2]),dec=float(cmdargs[3]),r=float(cmdargs[4])*3600.+matchr,method=cmdargs[1])
                 elif (cmdargs[1]=="rectangle"):
-                    catdata=query_vizier(cat=cat,ra=float(cmdargs[2]),dec=float(cmdargs[3]),w=float(cmdargs[4])+2.*matchr/3600.,h=float(cmdargs[5])+2.*matchr/3600.,method=cmdargs[1])
+                    catdata=query_vizier(cat=cat,ra=a,dec=d,w=w,h=h,method=cmdargs[1])
                 elif (cmdargs[1]=="box"):
-                    catdata=query_vizier(cat=cat,ra=float(cmdargs[2])-matchr/3600.,dec=float(cmdargs[3])-matchr/3600.,ra2=float(cmdargs[4])+matchr/3600.,dec2=float(cmdargs[5])+matchr/3600.,method=cmdargs[1])
+                    catdata=query_vizier(cat=cat,ra=r1,dec=d1,ra2=r2,dec2=d2,method=cmdargs[1])
                 nobj=len(catdata[0]) # intentional fail here if EmptyTable
                 if (verbosity >=50):
                     print ("Queried",catname,"- found",len(catdata[0]),"objects ->",photprocfile)
@@ -2211,12 +2255,12 @@ def get_area_data(cmdargs,cats,outdir):
                 catdata=phot[d2d.arcsec<float(cmdargs[4])*3600.+matchr]
             elif (cmdargs[1]=="rectangle"):
                 if (trimbox>0):
-                    catdata=phot[(phot['RA']>=float(cmdargs[2])-(float(cmdargs[4])/2.-matchr/3600.)) & (phot['RA']<=float(cmdargs[2])+(float(cmdargs[4])/2.+matchr/3600.)) & (phot['Dec']>=float(cmdargs[3])-float(cmdargs[5])/2.-matchr/3600.) & (phot['Dec']<=float(cmdargs[3])+float(cmdargs[5])/2.+matchr/3600.)]
+                    catdata=phot[(phot['RA']>=a-w/2.) & (phot['RA']<=a+w/2.) & (phot['Dec']>=d-h/2.) & (phot['Dec']<=d+h/2.)]
                 else:
                     catdata=phot[(phot['RA']>=float(cmdargs[2])-(float(cmdargs[4])/2.-matchr/3600.)/np.cos(np.deg2rad(phot['Dec']))) & (phot['RA']<=float(cmdargs[2])+(float(cmdargs[4])/2.+matchr/3600.)/np.cos(np.deg2rad(phot['Dec']))) & (phot['Dec']>=float(cmdargs[3])-float(cmdargs[5])/2.-matchr/3600.) & (phot['Dec']<=float(cmdargs[3])+float(cmdargs[5])/2.+matchr/3600.)]
             elif (cmdargs[1]=="box"):
                 if (trimbox>0):
-                    catdata=phot[(phot['RA']>=float(cmdargs[2])-matchr/3600.) & (phot['RA']<=float(cmdargs[4])+matchr/3600.) & (phot['Dec']>=float(cmdargs[3])-matchr/3600.) & (phot['Dec']<=float(cmdargs[5])+matchr/3600.)]
+                    catdata=phot[(phot['RA']>=r1) & (phot['RA']<=r2) & (phot['Dec']>=d1) & (phot['Dec']<=d2)]
                 else:
                     catdata=phot[(phot['RA']>=float(cmdargs[2])-matchr/3600.) & (phot['RA']<=float(cmdargs[4])+matchr/3600.) & (phot['Dec']>=float(cmdargs[3])-matchr/3600.) & (phot['Dec']<=float(cmdargs[5])+matchr/3600.)]
             if (len(catdata)>0):
@@ -2234,7 +2278,7 @@ def get_area_data(cmdargs,cats,outdir):
     return
 
 # -----------------------------------------------------------------------------
-def get_sed_multiple(method="",ra1=0.,ra2=0.):
+def get_sed_multiple(method="",ra1=0.,ra2=0.,dec1=0.,dec2=0.):
     # Generate a set of SEDs from spatially overlapping data
     # - Get data from Gaia
     # - Get data from CDS
@@ -2352,11 +2396,12 @@ def get_sed_multiple(method="",ra1=0.,ra2=0.):
         trimbox=int(pyssedsetupdata[pyssedsetupdata[:,0]=="TrimBox",1][0])
         if (trimbox>0):
             if (verbosity>50):
-                print ("Trimming box edges to fit RA limits")
+                print ("Trimming box edges to fit RA amd Dec limits")
             ras=np.array([a[0][3] for a in compiledanc])
-            compiledseds=compiledseds[(ras>=ra1) & (ras<ra2)]
-            compiledanc=compiledanc[(ras>=ra1) & (ras<ra2)]
-            sourcedata=sourcedata[(ras>=ra1) & (ras<ra2)]
+            decs=np.array([a[0][4] for a in compiledanc])
+            compiledseds=compiledseds[(ras>=ra1) & (ras<ra2) & (decs>=dec1) & (decs<dec2)]
+            compiledanc=compiledanc[(ras>=ra1) & (ras<ra2) & (decs>=dec1) & (decs<dec2)]
+            sourcedata=sourcedata[(ras>=ra1) & (ras<ra2) & (decs>=dec1) & (decs<dec2)]
 
     return compiledseds,compiledanc,sourcedata
 
@@ -2857,7 +2902,7 @@ def compile_areaseds(seds,weights,photdata,ancs,ancweights,ancdata,ra1=0.,ra2=0.
                     #print (data.dtype.names)
                     mag,magerr,flux,ferr,mask=get_mag_flux(data,fdata,zpt,reject_reasons)
                     # If the fractional error in the flux is sufficiently small
-                    if (flux>0):
+                    if ((flux>0) & (flux==flux+0)): # check for NaN
                         if (ferr/flux<fdata['maxperr']/100.):
                             sed[nfsuccess]=(catalogue,catid,(newra-sourcera)*3600.,(newdec-sourcedec)*3600.,(ra-sourcera)*3600.,(dec-sourcedec)*3600.,svokey,fdata['filtname'],wavel,dw,mag,magerr,flux,ferr,0,0,0,mask)
                             nfsuccess+=1
@@ -2982,7 +3027,11 @@ def get_gtomo_av(dist,ext_dist50,ext_av50):
     #elif (dist > max_est_dist25):
     else:
         f=interpolate.interp1d(ext_dist50,ext_av50)
-        av=f(dist)
+        try:
+            av=f(dist)
+        except ValueError:
+            print_warn ("An attempt was made to set an invalid Av at distance "+str(dist)+" pc")
+            av=0
     #else:
         #f=interpolate.interp1d(ext_dist25,ext_av25)
         #ebv=f(dist)
@@ -5260,7 +5309,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240613"
+    version="1.1.dev.20240614"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
@@ -5408,7 +5457,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
         if (cmdtype!="box"):
             compiledseds,compiledanc,sourcedata=get_sed_multiple()
         else: # Extra parameters to deal with TrimBox
-            compiledseds,compiledanc,sourcedata=get_sed_multiple(method="box",ra1=float(cmdargs[2]),ra2=float(cmdargs[4]))
+            compiledseds,compiledanc,sourcedata=get_sed_multiple(method="box",ra1=float(cmdargs[2]),ra2=float(cmdargs[4]),dec1=float(cmdargs[3]),dec2=float(cmdargs[5]))
 
         if (outappend>0 and usepreviousrun<=4):
             if (verbosity >=50):
@@ -5712,8 +5761,8 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                     if (extmap=="GTomo"): # GTomo done outside deredden() so execution not repeated
                         gtomo_reextract=False
                         if (searchtype=="area"):
-                            dra=float(reducto(ra))-float(ext_ra)
-                            ddec=float(reducto(dec))-float(ext_dec)
+                            dra=float(reducto(ra))-float(reducto(ext_ra))
+                            ddec=float(reducto(dec))-float(reducto(ext_dec))
                             if ((dra>extmaxangle) | (ddec>extmaxangle)):
                                 gtomo_reextract=True
                             if (verbosity >=70):
@@ -5864,7 +5913,8 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                 else:
                     print_warn ("Could not fit data for this object")
             else:
-                print_warn ("Invalid distance - abandoning fit for this object (check MaxDistError="+str(maxdisterr)+")")
+                if (verbosity>30):
+                    print_warn ("Invalid distance - abandoning fit for this object (check MaxDistError="+str(maxdisterr)+")")
             if (speedtest):
                 print ("Fitted SED:",datetime.now()-startsource,"s")
 
