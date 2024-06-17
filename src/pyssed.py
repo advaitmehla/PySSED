@@ -3161,7 +3161,9 @@ def adopt_distance(ancillary):
     plx[plx!=plx] = 0
     plxerr[plxerr!=plxerr] = 0
     plx=np.nan_to_num(plx,nan=0)
-    plxerr=np.nan_to_num(plxerr,nan=0)    
+    plxerr=np.nan_to_num(plxerr,nan=0)
+    plxerr=plxerr[plx!=0]
+    plx=plx[plx!=0]
 
     # Convert to distance (with error floor)
     minerr=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MinAncError",1][0])
@@ -3217,20 +3219,36 @@ def adopt_distance(ancillary):
         try:
             dist=np.average(dd,weights=1./dderr**2)
         except TypeError:
-            print_fail ("TypeError in adopt_distance")
+            print_fail ("TypeError in adopt_distance (distance + parallax)")
             weights=1./dderr**2
             print (dd,d,plxdist)
             print (dderr,derr,plxdisterr)
             print (weights)
             print (np.shape(dd),np.shape(weights))
             print (ancillary)
-            exit()
+            raise
         ferr=np.min(dderr/dd) # Compute minimum fractional error
     elif (len(d)>0):
-        dist=np.average(d,weights=1./derr**2)
+        try:
+            dist=np.average(d,weights=1./derr**2)
+        except TypeError:
+            print_fail ("TypeError in adopt_distance (distance)")
+            weights=1./derr**2
+            print (d,derr,weights)
+            print (np.shape(d),np.shape(weights))
+            print (ancillary)
+            raise
         ferr=np.min(derr/dist) # Compute minimum fractional error
     elif (len(plxdist)>0):
-        dist=np.average(plxdist,weights=1./plxdisterr**2)
+        try:
+            dist=np.average(plxdist,weights=1./plxdisterr**2)
+        except TypeError:
+            print_fail ("TypeError in adopt_distance (parallax)")
+            weights=1./plxdisterr**2
+            print (plxdist,plxdisterr,weights)
+            print (np.shape(plxdist),np.shape(weights))
+            print (ancillary)
+            raise
         ferr=np.min(plxerr/plx) # Compute minimum fractional error
     else:
         dist = defaultdist # Default to fixed distance
@@ -5325,7 +5343,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240614"
+    version="1.1.dev.20240617"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
