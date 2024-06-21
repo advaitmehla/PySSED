@@ -1610,24 +1610,26 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
     svokey=fdata['svoname']
     datatype=fdata['datatype']
     errtype=fdata['errtype']
+    zptcorr=fdata['zptcorr']
 
     # Detect magnitudes or fluxes
     if ((datatype=='mag') or (datatype=='nMgy')):
-        if (mag.size==1):
-            mag=reducto(mag)
-            magerr=reducto(err)
-            if (np.isscalar(magerr)==False or magerr>1.):
-                magerr=defaulterr
-        if (datatype=='nMgy'):
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="invalid value encountered in true_divide")
-                warnings.filterwarnings("ignore", message="invalid value encountered in divide")
-                warnings.filterwarnings("ignore", message="divide by zero encountered in log10")
-                warnings.filterwarnings("ignore", message="overflow encountered in scalar power")
-                ferr=magerr/mag
-                magerr=-2.5*np.log10(1.-ferr)
-                mag=22.5-2.5*np.log10(mag)
-        flux=10**(mag/-2.5)*zpt
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="invalid value encountered in true_divide")
+            warnings.filterwarnings("ignore", message="invalid value encountered in divide")
+            warnings.filterwarnings("ignore", message="divide by zero encountered in log10")
+            warnings.filterwarnings("ignore", message="overflow encountered in scalar power")
+            warnings.filterwarnings("ignore", message="overflow encountered in power")
+            if (mag.size==1):
+                mag=reducto(mag)
+                magerr=reducto(err)
+                if (np.isscalar(magerr)==False or magerr>1.):
+                    magerr=defaulterr
+            if (datatype=='nMgy'):
+                    ferr=magerr/mag
+                    magerr=-2.5*np.log10(1.-ferr)
+                    mag=22.5-2.5*np.log10(mag)
+            flux=10**(mag/-2.5)*zpt
         if (errtype=='Same'):
             if (datatype!='nMgy'):
 #                try:
@@ -1688,6 +1690,11 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
         except TypeError:
             mag=-2.5*np.log10(flux/zpt)
             magerr=np.where(ferr>0,2.5*np.log10(1+ferr/flux),0.)
+
+    # Adjust zero point
+    if (zptcorr!=0):
+        mag-=zptcorr
+        flux/=10**(-zptcorr/2.5)
             
     if (verbosity>98):
         try:
@@ -5343,7 +5350,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240617"
+    version="1.1.dev.20240621"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
