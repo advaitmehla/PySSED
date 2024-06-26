@@ -662,6 +662,8 @@ def get_gaia_obj(cmdparams):
                     pmdec=result_table['PMDEC'][0]
                 except:
                     pmra=0; pmdec=0
+                if ((pmra!=pmra) & (pmdec!=pmdec)): # catch nulls/nans
+                    pmra=0; pmdec=0
                 try:
                     if (result_table['DEC'][0][0]=="+"):
                         coords2000=[rac[0]*15.+rac[1]/4+rac[2]/240,decc[0]+decc[1]/60+decc[2]/3600]
@@ -1353,8 +1355,15 @@ def get_vizier_single(cmdparams,sourcedata):
                         ferr=reducto(ferr)
                         mask=reducto(mask)
                         # Force limits
-                        if ((fdata['dataref']=='Vega') | (fdata['dataref']=='AB')):
+                        if ((fdata['datatype']!='mag')):
+                            if ((flux<fdata['mindata']) | (flux>fdata['maxdata'])):
+                                if (verbosity>=99):
+                                    print ("Flux",flux,"not in mindata-maxdata range",fdata['mindata'],"-",fdata['maxdata'])
+                                flux=0
+                        else:
                             if ((mag<fdata['mindata']) | (mag>fdata['maxdata'])):
+                                if (verbosity>=99):
+                                    print ("Magnitude",mag,"not in mindata-maxdata range",fdata['mindata'],"-",fdata['maxdata'])
                                 flux=0
                     except:
                         if (warnmissing):
@@ -1362,18 +1371,20 @@ def get_vizier_single(cmdparams,sourcedata):
                         flux=0
                         raise
                     # If the fractional error in the flux is sufficiently small
-                    if (verbosity>99):
-                        print ("<<< 1")
+                    if (verbosity>=99):
+                        print ("... pass point 1")
                     if (flux>0):
-                        if (verbosity>99):
-                            print ("<<< 2")
+                        if (verbosity>=99):
+                            print ("... pass point 2")
                         if (ferr/flux<=fdata['maxperr']/100.*1.000001): # Allow rounding errors
-                            if (verbosity>99):
-                                print ("<<< 3")
+                            if (verbosity>=99):
+                                print ("... pass point 3")
                             sed[nfsuccess]=(catalogue,catid,(newra-sourcera)*3600.,(newdec-sourcedec)*3600.,(ra-sourcera)*3600.,(dec-sourcedec)*3600.,svokey,fdata['filtname'],wavel,dw,mag,magerr,flux,ferr,0,0,0,mask)
                             if (verbosity>80):
                                 print ("Data added to file, row",nfsuccess,":",sed[nfsuccess])
                             nfsuccess+=1
+                    elif (verbosity>=99):
+                        print ("Flux not above zero. Flux:",flux)
     if (speedtest):
         print ("get_vizier_single, end of catalogue loop:",datetime.now()-globaltime,"s")
 
@@ -1620,6 +1631,7 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
             warnings.filterwarnings("ignore", message="divide by zero encountered in log10")
             warnings.filterwarnings("ignore", message="overflow encountered in scalar power")
             warnings.filterwarnings("ignore", message="overflow encountered in power")
+            warnings.filterwarnings("ignore", message="overflow encountered in double_scalars")
             if (mag.size==1):
                 mag=reducto(mag)
                 magerr=reducto(err)
@@ -5350,7 +5362,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240621"
+    version="1.1.dev.20240626"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
@@ -5929,7 +5941,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                         fracerr=modelledsed['derederr']/modelledsed['model']
                         ruwe=np.average(np.abs(oe)/fracerr)
                         gof=np.median(np.abs(oe))
-                        uvsed=truesed[modelledsed['wavel']<4000.]
+                        uvsed=modelledsed[modelledsed['wavel']<4000.]
                         if (len(uvsed)>0):
                             uvxs=np.average(uvsed['dered']/uvsed['model']-1)
                         else:
