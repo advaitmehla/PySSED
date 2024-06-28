@@ -3318,8 +3318,6 @@ def adopt_distance(ancillary):
     if ((verbosity >= 70) & (dist>0)):
         print ("Adopted distance:",dist,"pc")
 
-    exit()
-
     return dist
 
     
