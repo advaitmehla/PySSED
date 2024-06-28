@@ -3169,6 +3169,8 @@ def adopt_distance(ancillary):
     usenodist=int(pyssedsetupdata[pyssedsetupdata[:,0]=="UseStarsWithNoDist",1][0])
     maxdisterr=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MaxDistError",1][0])
     defaultdist=float(pyssedsetupdata[pyssedsetupdata[:,0]=="DefaultDist",1][0])
+    wtlimit=float(pyssedsetupdata[pyssedsetupdata[:,0]=="AncWeightingLimit",1][0])
+    sigmalimit=float(pyssedsetupdata[pyssedsetupdata[:,0]=="AncSigmaLimit",1][0])
     
     # List parallaxes & distances
     # Do this in two stages to avoid numpy/python issues about bitwise/elementwise logic
@@ -3229,12 +3231,24 @@ def adopt_distance(ancillary):
             if (verbosity>=98):
                 print ("Using parallax",priplx,pridist)
             d=[]
-   
+           
     # Now combine them by weighted error
     derr=np.where(derr!=0,derr,d*minerr)
     if ((len(d)>0) & (len(plxdist)>0)):
         dd=np.append(d,plxdist,axis=0)
         dderr=np.append(derr,plxdisterr,axis=0)
+        # Check for limits
+        ferr=dderr/dd
+        ferr/=np.max(ferr)
+        dd=dd[ferr>wtlimit]
+        dderr=dderr[ferr>wtlimit]
+        minerr=np.min(dderr)
+        medd=np.median(dd)
+        sigma=(dd-medd)/minerr
+        dd=dd[sigma<sigmalimit]
+        dderr=dderr[sigma<sigmalimit]
+        if (verbosity>=98):
+            print ("dd,dderr,ferr:",dd,dderr,ferr)
         try:
             dist=np.average(dd,weights=1./dderr**2)
         except TypeError:
@@ -3249,6 +3263,16 @@ def adopt_distance(ancillary):
         ferr=np.min(dderr/dd) # Compute minimum fractional error
     elif (len(d)>0):
         try:
+            if (len(d)>1):
+                ferr=derr/d
+                ferr/=np.max(ferr)
+                d=d[ferr>wtlimit]
+                derr=derr[ferr>wtlimit]
+                minerr=np.min(derr)
+                medd=np.median(d)
+                sigma=(d-medd)/minerr
+                d=d[sigma<sigmalimit]
+                derr=derr[sigma<sigmalimit]
             dist=np.average(d,weights=1./derr**2)
         except TypeError:
             print_fail ("TypeError in adopt_distance (distance)")
@@ -3260,6 +3284,16 @@ def adopt_distance(ancillary):
         ferr=np.min(derr/dist) # Compute minimum fractional error
     elif (len(plxdist)>0):
         try:
+            if (len(plxdist)>1):
+                ferr=plxdisterr/plxdist
+                ferr/=np.max(ferr)
+                plxdist=plxdist[ferr>wtlimit]
+                plxdisterr=plxdisterr[ferr>wtlimit]
+                minerr=np.min(plxdisterr)
+                medd=np.median(plxdist)
+                sigma=(plxdist-medd)/minerr
+                plxdist=plxdist[sigma<sigmalimit]
+                plxdisterr=plxdisterr[sigma<sigmalimit]
             dist=np.average(plxdist,weights=1./plxdisterr**2)
         except TypeError:
             print_fail ("TypeError in adopt_distance (parallax)")
@@ -3283,6 +3317,8 @@ def adopt_distance(ancillary):
     # List distances
     if ((verbosity >= 70) & (dist>0)):
         print ("Adopted distance:",dist,"pc")
+
+    exit()
 
     return dist
 
@@ -5362,7 +5398,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240626"
+    version="1.1.dev.20240628"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
