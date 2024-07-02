@@ -1356,12 +1356,12 @@ def get_vizier_single(cmdparams,sourcedata):
                         mask=reducto(mask)
                         # Force limits
                         if ((fdata['datatype']!='mag')):
-                            if ((flux<fdata['mindata']) | (flux>fdata['maxdata'])):
+                            if ((flux<=fdata['mindata']) | (flux>=fdata['maxdata'])):
                                 if (verbosity>=99):
                                     print ("Flux",flux,"not in mindata-maxdata range",fdata['mindata'],"-",fdata['maxdata'])
                                 flux=0
                         else:
-                            if ((mag<fdata['mindata']) | (mag>fdata['maxdata'])):
+                            if ((mag<=fdata['mindata']) | (mag>=fdata['maxdata'])):
                                 if (verbosity>=99):
                                     print ("Magnitude",mag,"not in mindata-maxdata range",fdata['mindata'],"-",fdata['maxdata'])
                                 flux=0
@@ -1707,7 +1707,7 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
     if (zptcorr!=0):
         mag-=zptcorr
         flux/=10**(-zptcorr/2.5)
-            
+
     if (verbosity>98):
         try:
             print ("Flux[0]:",flux[0],ferr[0])
@@ -4021,7 +4021,7 @@ def chisq_model_with_extinction(teff,modeltype,priors,params,values,sed,avdata,e
     elif ((ebv!=deredden2_ebv) | (np.abs(teff-deredden2_teff)>deredtol/ebv)):
         sed=deredden2(sed,avdata,ebv,np.squeeze(teff),logg,feh,afe)
     elif (verbosity>97):
-        print ("Not updating dereddening",teff,"~",deredden2_teff)
+        print ("Not updating dereddening",teff,"~",deredden2_teff,"(",np.abs(teff-deredden2_teff),">",deredtol/ebv)
     sed['derederr']=sed['ferr']*sed['dered']/sed['flux']
     wavel=sed[sed['mask']>0]['wavel']/1.e10
     flux=sed[sed['mask']>0]['dered']
@@ -4168,6 +4168,7 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
         flux=np.log10(flux)
         offset=np.median(flux-model)
         model+=offset
+        model=np.where(((model==-np.inf) | (model==np.inf)),10,model) # fixes +/-inf
     if (verbosity>=99):
         print ("log model",model)
         print ("log flux",flux)
@@ -4190,8 +4191,8 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
                 #1/exp([log10(lambda)-log10(0.002898 m K/ T_eff)]^2/sigma^2)^power
                 if (verbosity>=99):
                     print ("wt:",wt)
-            wtsum=np.sum(wt)
-            chisq=np.sum((flux-model)**2*wt)/((n-1)*wtsum)
+            wtsum=np.sum(wt[flux>0])
+            chisq=np.sum((flux[flux>0]-model[flux>0])**2*wt[flux>0])/((n-1)*wtsum)
             #chisq=np.sum((flux-model)**2)/(n-1) # Set unity weighting for all data
     else: # leave a diagnostic in the chisq
         if (n<=1):
@@ -4213,11 +4214,14 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
             oldchisq=chisq
             # Upper temperature limit
             if (verbosity>=97):
+                print ("chisq",chisq)
                 print ("Applying temp. priors: from",priors[0]['min'],"-err",priors[0]['minerr'],"to",priors[0]['max'],"+err",priors[0]['maxerr'])
             if (priors[0]['maxerr']>0.):
-                prioruppersigma=(teff-priors[0]['max'])/priors[0]['maxerr']
-                if (prioruppersigma>-10.):
-                    if (prioruppersigma<10.):
+                prioruppersigma=(priors[0]['max']-teff)/priors[0]['maxerr']
+                if (prioruppersigma<5.):
+                    if (prioruppersigma>=-5.):
+                        if (verbosity>=97):
+                            print ("prioruppersigma,(erf(prioruppersigma)+1.)/2.",prioruppersigma,(erf(prioruppersigma)+1.)/2.)
                         chisq/=(erf(prioruppersigma)+1.)/2.
                     else:
                         chisq=1.1e99
@@ -4225,9 +4229,11 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
                 chisq=1.2e99
             # Lower temperature limit
             if (priors[0]['minerr']>0.):
-                priorlowersigma=(priors[0]['min']-teff)/priors[0]['minerr']
-                if (priorlowersigma>-10):
-                    if (priorlowersigma<10.):
+                priorlowersigma=(teff-priors[0]['min'])/priors[0]['minerr']
+                if (priorlowersigma<5):
+                    if (priorlowersigma>=-5.):
+                        if (verbosity>=97):
+                            print ("priorlowersigma,(erf(prioruppersigma)+1.)/2.",priorlowersigma,(erf(priorlowersigma)+1.)/2.)
                         chisq/=(erf(priorlowersigma)+1.)/2.
                     else:
                         chisq=1.3e99
@@ -5396,7 +5402,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240628"
+    version="1.1.dev.20240702"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
