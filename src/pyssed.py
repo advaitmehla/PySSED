@@ -662,6 +662,8 @@ def get_gaia_obj(cmdparams):
                     pmdec=result_table['PMDEC'][0]
                 except:
                     pmra=0; pmdec=0
+                if ((pmra!=pmra) & (pmdec!=pmdec)): # catch nulls/nans
+                    pmra=0; pmdec=0
                 try:
                     if (result_table['DEC'][0][0]=="+"):
                         coords2000=[rac[0]*15.+rac[1]/4+rac[2]/240,decc[0]+decc[1]/60+decc[2]/3600]
@@ -994,6 +996,10 @@ def extract_ra_dec_pm(sourcedata):
                             sourcepmdec=zero
                             sourcepmraerr=zero
                             sourcepmdecerr=zero
+                        except ValueError as e:
+                            print_fail ("Failure in proper motion data extraction. Error follows:")
+                            print (e)
+                            print_fail ("Did you mean to set proper motion to PMCorrType = 0?")
                     else:
                         try:
                             if (length>0):
@@ -1018,9 +1024,21 @@ def extract_ra_dec_pm(sourcedata):
                         sourcera=(sourcedata['_RAJ2000']).astype(float)
                         sourcedec=(sourcedata['_DEJ2000']).astype(float)
                     except:
-                        print_fail ("Failure to extract co-ordinates from data")
-                        print ("Available columns",sourcedata.dtype.names)
-                        raise
+                        try:
+                            if (verbosity>100-95):
+                                print ("Attempting direct extraction from unlabelled array")
+                            sourcera=sourcedata[0]
+                            sourcedec=sourcedata[1]
+                            print (sourcera,sourcedec)
+                            if ((sourcera<0) | (sourcedec<-90) | (sourcera>360) | (sourcedec>90)):
+                                print_fail ("Intentionally failing over bad co-ordinate extraction")
+                                print (sourcedata)
+                                abc=1/0 # Triggers expect:
+                        except:
+                            print_fail ("Failure to extract co-ordinates from data")
+                            print ("Available columns",sourcedata.dtype.names)
+                            print ("Sourcedata",sourcedata)
+                            raise
                     #try: # if single object, expand array
                     #    foo=len(sourcera)
                     #except:
@@ -1157,7 +1175,13 @@ def get_vizier_single(cmdparams,sourcedata):
         if (verbosity>70):
             print (sourcedata[0])
         # Get the parameters from the source data
-        sourcetype,ra,dec,raerr,decerr,pmra,pmdec,pmraerr,pmdecerr,sourceepoch=extract_ra_dec_pm(sourcedata[0])
+        try: # Test to see if only RA+Dec combination
+            if ((len(sourcedata)==2) & (sourcedata[0]<360.) & (sourcedata[1]<90.) & (sourcedata[0]>0.) & (sourcedata[1]<90.)):
+                sourcetype,ra,dec,raerr,decerr,pmra,pmdec,pmraerr,pmdecerr,sourceepoch=extract_ra_dec_pm(sourcedata)
+            else:
+                abc=1/0 #intentionally fail to grab normal except: route
+        except:
+            sourcetype,ra,dec,raerr,decerr,pmra,pmdec,pmraerr,pmdecerr,sourceepoch=extract_ra_dec_pm(sourcedata[0])
         # Now extract the first source
         sourcera=reducto(reducto(ra))
         sourcedec=reducto(reducto(dec))
@@ -1259,7 +1283,7 @@ def get_vizier_single(cmdparams,sourcedata):
                     newdec=reducto(newdec)
                     if (verbosity>98):
                         print ("Source astrometry:")
-                        print ("Source epoch:",float(catdata[catdata['catname']==catalogue]['epoch']))
+                        print ("Source epoch:",float(reducto(catdata[catdata['catname']==catalogue]['epoch'])))
                         print ("Source RA:",ra,"->",newra,"(",(ra-newra)*3600.,"arcsec)")
                         print ("Source Dec:",dec,"->",newdec,"(",(dec-newdec)*3600.,"arcsec)")
                         print ("Search radius:",matchr,"arcsec")
@@ -1271,16 +1295,20 @@ def get_vizier_single(cmdparams,sourcedata):
                     matchr+=np.sqrt(sourcepmra**2+sourcepmdec**2)/1000.*pmerrtime
                 phot=np.genfromtxt(photfile, delimiter='\t', names=True)
                 phot=phot[phot['RA']>=0]
+                if (verbosity>95):
+                    print (catalogue,"- querying file with",len(phot),"objects")
                 c=SkyCoord(ra=ra*u.degree,dec=dec*u.degree)
                 catcoords=SkyCoord(ra=phot['RA']*u.degree,dec=phot['Dec']*u.degree)
                 idx,d2d,d3d=c.match_to_catalog_sky(catcoords)
+                if (verbosity>95):
+                    print ("D2D,matchr,idx:",d2d,matchr,idx)
                 if (d2d.arcsec<matchr):
                     vizier_data=np.expand_dims(np.expand_dims(phot[idx],axis=0),axis=1)
                     newra=phot[idx]['RA']
                     newdec=phot[idx]['Dec']
                 else:
                     vizier_data=[]
-                if (verbosity>60):
+                if (verbosity>70):
                     print ("CATALOGUE = ",catalogue,"; RA,DEC =",ra,dec)
                     print ("Vizier data:",vizier_data)
             if (len(vizier_data)>0): # If any data exists
@@ -1293,7 +1321,8 @@ def get_vizier_single(cmdparams,sourcedata):
                     try:
                         catid=vizier_data[0][idcol[0]][0]
                     except:
-                        catid="NotRecognised"
+                        #catid="NotRecognised"
+                        catid=str(ra)+"_"+str(dec)
                 if (verbosity>90):
                     print ("Object:",catid,"(from column",idcol,")")
                 # Identify magnitude and error columns
@@ -1310,10 +1339,15 @@ def get_vizier_single(cmdparams,sourcedata):
                         zpt=float(svodata[svodata['svoname']==svokey]['zpt'][0])
                     elif (fdata['dataref']=='AB'):
                         zpt=3631.
+                    else:
+                        print_fail("Filters: Data reference should be Vega or AB but is `"+fdata['dataref']+"'")
+                        raise
                     # Flux should be handled within get_mag_flux
                     try:
                         # Extract data
                         mag,magerr,flux,ferr,mask=get_mag_flux(vizier_data[0],fdata,zpt,reject_reasons)
+                        if (verbosity>90):
+                            print ("Data:",mag,magerr,flux,ferr,mask)
                         # If more than one datapoint, only use the first one
                         mag=reducto(mag)
                         magerr=reducto(magerr)
@@ -1321,18 +1355,36 @@ def get_vizier_single(cmdparams,sourcedata):
                         ferr=reducto(ferr)
                         mask=reducto(mask)
                         # Force limits
-                        if ((fdata['dataref']=='Vega') | (fdata['dataref']=='AB')):
-                            if ((mag<fdata['mindata']) | (mag>fdata['maxdata'])):
+                        if ((fdata['datatype']!='mag')):
+                            if ((flux<=fdata['mindata']) | (flux>=fdata['maxdata'])):
+                                if (verbosity>=99):
+                                    print ("Flux",flux,"not in mindata-maxdata range",fdata['mindata'],"-",fdata['maxdata'])
+                                flux=0
+                        else:
+                            if ((mag<=fdata['mindata']) | (mag>=fdata['maxdata'])):
+                                if (verbosity>=99):
+                                    print ("Magnitude",mag,"not in mindata-maxdata range",fdata['mindata'],"-",fdata['maxdata'])
                                 flux=0
                     except:
                         if (warnmissing):
                             print_warn ("Failure to extract data for "+catalogue+" "+fdata['filtname'])
                         flux=0
+                        raise
                     # If the fractional error in the flux is sufficiently small
+                    if (verbosity>=99):
+                        print ("... pass point 1")
                     if (flux>0):
+                        if (verbosity>=99):
+                            print ("... pass point 2")
                         if (ferr/flux<=fdata['maxperr']/100.*1.000001): # Allow rounding errors
+                            if (verbosity>=99):
+                                print ("... pass point 3")
                             sed[nfsuccess]=(catalogue,catid,(newra-sourcera)*3600.,(newdec-sourcedec)*3600.,(ra-sourcera)*3600.,(dec-sourcedec)*3600.,svokey,fdata['filtname'],wavel,dw,mag,magerr,flux,ferr,0,0,0,mask)
+                            if (verbosity>80):
+                                print ("Data added to file, row",nfsuccess,":",sed[nfsuccess])
                             nfsuccess+=1
+                    elif (verbosity>=99):
+                        print ("Flux not above zero. Flux:",flux)
     if (speedtest):
         print ("get_vizier_single, end of catalogue loop:",datetime.now()-globaltime,"s")
 
@@ -1569,22 +1621,27 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
     svokey=fdata['svoname']
     datatype=fdata['datatype']
     errtype=fdata['errtype']
+    zptcorr=fdata['zptcorr']
 
     # Detect magnitudes or fluxes
     if ((datatype=='mag') or (datatype=='nMgy')):
-        if (mag.size==1):
-            mag=reducto(mag)
-            magerr=reducto(err)
-            if (np.isscalar(magerr)==False or magerr>1.):
-                magerr=defaulterr
-        if (datatype=='nMgy'):
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="invalid value encountered in true_divide")
-                warnings.filterwarnings("ignore", message="divide by zero encountered in log10")
-                ferr=magerr/mag
-                magerr=-2.5*np.log10(1.-ferr)
-                mag=22.5-2.5*np.log10(mag)
-        flux=10**(mag/-2.5)*zpt
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="invalid value encountered in true_divide")
+            warnings.filterwarnings("ignore", message="invalid value encountered in divide")
+            warnings.filterwarnings("ignore", message="divide by zero encountered in log10")
+            warnings.filterwarnings("ignore", message="overflow encountered in scalar power")
+            warnings.filterwarnings("ignore", message="overflow encountered in power")
+            warnings.filterwarnings("ignore", message="overflow encountered in double_scalars")
+            if (mag.size==1):
+                mag=reducto(mag)
+                magerr=reducto(err)
+                if (np.isscalar(magerr)==False or magerr>1.):
+                    magerr=defaulterr
+            if (datatype=='nMgy'):
+                    ferr=magerr/mag
+                    magerr=-2.5*np.log10(1.-ferr)
+                    mag=22.5-2.5*np.log10(mag)
+            flux=10**(mag/-2.5)*zpt
         if (errtype=='Same'):
             if (datatype!='nMgy'):
 #                try:
@@ -1645,7 +1702,12 @@ def get_mag_flux(testdata,fdata,zpt,reasons):
         except TypeError:
             mag=-2.5*np.log10(flux/zpt)
             magerr=np.where(ferr>0,2.5*np.log10(1+ferr/flux),0.)
-            
+
+    # Adjust zero point
+    if (zptcorr!=0):
+        mag-=zptcorr
+        flux/=10**(-zptcorr/2.5)
+
     if (verbosity>98):
         try:
             print ("Flux[0]:",flux[0],ferr[0])
@@ -1715,9 +1777,9 @@ def reject_test(reasons,inputdata):
                     print ("Masked",reasons[i])
             else:
                 try:
-                    inputdata[reasons[i]['filtname']][0]=-9.e99 # Set to stupidly low flux/mag
+                    inputdata[reasons[i]['filtname']][0]=-1.e38 # Set to stupidly low flux/mag
                 except:
-                    inputdata[reasons[i]['filtname']]=-9.e99 # Set to stupidly low flux/mag
+                    inputdata[reasons[i]['filtname']]=-1.e38 # Set to stupidly low flux/mag
         else:
                 if (verbosity>95):
                     print ("Not masked",reasons[i])
@@ -2134,15 +2196,62 @@ def get_area_data(cmdargs,cats,outdir):
         matchr=cats[cats['catname']==catname]['matchr'][0]
         photprocfile=outdir+catname+".npy"
         server=cats[cats['catname']==catname]['server'][0]
+
+        # Add matching radii to co-ordinates
+        if (cmdargs[1]=="rectangle"):
+            h=float(cmdargs[5])+2.*matchr/3600.
+            w=float(cmdargs[4])+2.*matchr/3600.
+            a=float(cmdargs[2])
+            d=float(cmdargs[3])
+            d2=d+w/2.
+            d1=d-w/2.
+        elif (cmdargs[1]=="box"):
+            r1=float(cmdargs[2])-matchr/3600.
+            r2=float(cmdargs[4])+matchr/3600.
+            d1=float(cmdargs[3])-matchr/3600.
+            d2=float(cmdargs[5])+matchr/3600.
+            h=d2-d1
+            w=r2-r1
+            a=(r2+r1)/2.
+            d=(d2+d1)/2.
+        else:
+            d1=0.; d2=0.; w=0.; h=0.; a=0.; d=0.
+
+        # Get fudge factors to add to dec additions to account for curvature
+        # Faster than doing spherical trig
+        if ((trimbox>0) & ((cmdargs[1]=="rectangle") | (cmdargs[1]=="box"))):
+            noffset=0.
+            soffset=0.
+            if (d2>0.):
+                noffset=0.0002*(w/2.)**2.
+            if (d1<0.):
+                soffset=0.0002*(w/2.)**2.
+            d2+=noffset
+            d1-=soffset
+            h+=noffset+soffset
+            d+=noffset/2.-soffset/2.
+            if (verbosity>80.):
+                print ("Trimbox altered RA and Dec to:")
+                print (a,d)
+                print ("Width and height:")
+                print (w,h)
+                print ("Declination range:")
+                print (d1,d2)
+            if (d2>90.):
+                print_warn ("TrimBox fail: Maximum declination greater than 90 degrees.")
+                print_warn ("Try smaller region or cone search on celestial pole")
+            if (d1<-90.):
+                print_warn ("TrimBox fail: Minimum declination greater than -90 degrees.")
+                print_warn ("Try smaller region or cone search on celestial pole")
         
         if (server=="Vizier"):
             try: # If data
                 if (cmdargs[1]=="cone"):
                     catdata=query_vizier(cat=cat,ra=float(cmdargs[2]),dec=float(cmdargs[3]),r=float(cmdargs[4])*3600.+matchr,method=cmdargs[1])
                 elif (cmdargs[1]=="rectangle"):
-                    catdata=query_vizier(cat=cat,ra=float(cmdargs[2]),dec=float(cmdargs[3]),w=float(cmdargs[4])+2.*matchr/3600.,h=float(cmdargs[5])+2.*matchr/3600.,method=cmdargs[1])
+                    catdata=query_vizier(cat=cat,ra=a,dec=d,w=w,h=h,method=cmdargs[1])
                 elif (cmdargs[1]=="box"):
-                    catdata=query_vizier(cat=cat,ra=float(cmdargs[2])-matchr/3600.,dec=float(cmdargs[3])-matchr/3600.,ra2=float(cmdargs[4])+matchr/3600.,dec2=float(cmdargs[5])+matchr/3600.,method=cmdargs[1])
+                    catdata=query_vizier(cat=cat,ra=r1,dec=d1,ra2=r2,dec2=d2,method=cmdargs[1])
                 nobj=len(catdata[0]) # intentional fail here if EmptyTable
                 if (verbosity >=50):
                     print ("Queried",catname,"- found",len(catdata[0]),"objects ->",photprocfile)
@@ -2168,15 +2277,23 @@ def get_area_data(cmdargs,cats,outdir):
                 catdata=np.expand_dims(phot[d2d.arcsec<float(cmdargs[4])*3600.+matchr],axis=0)
                 catdata=phot[d2d.arcsec<float(cmdargs[4])*3600.+matchr]
             elif (cmdargs[1]=="rectangle"):
+                if (verbosity>=70):
+                    print ("Before trim:",len(phot))
                 if (trimbox>0):
-                    catdata=phot[(phot['RA']>=float(cmdargs[2])-(float(cmdargs[4])/2.-matchr/3600.)) & (phot['RA']<=float(cmdargs[2])+(float(cmdargs[4])/2.+matchr/3600.)) & (phot['Dec']>=float(cmdargs[3])-float(cmdargs[5])/2.-matchr/3600.) & (phot['Dec']<=float(cmdargs[3])+float(cmdargs[5])/2.+matchr/3600.)]
+                    catdata=phot[(phot['RA']>=a-w/2.) & (phot['RA']<=a+w/2.) & (phot['Dec']>=d-h/2.) & (phot['Dec']<=d+h/2.)]
                 else:
                     catdata=phot[(phot['RA']>=float(cmdargs[2])-(float(cmdargs[4])/2.-matchr/3600.)/np.cos(np.deg2rad(phot['Dec']))) & (phot['RA']<=float(cmdargs[2])+(float(cmdargs[4])/2.+matchr/3600.)/np.cos(np.deg2rad(phot['Dec']))) & (phot['Dec']>=float(cmdargs[3])-float(cmdargs[5])/2.-matchr/3600.) & (phot['Dec']<=float(cmdargs[3])+float(cmdargs[5])/2.+matchr/3600.)]
+                if (verbosity>=70):
+                    print ("After trim:",len(phot))
             elif (cmdargs[1]=="box"):
+                if (verbosity>=70):
+                    print ("Before trim:",len(phot))
                 if (trimbox>0):
-                    catdata=phot[(phot['RA']>=float(cmdargs[2])-matchr/3600.) & (phot['RA']<=float(cmdargs[4])+matchr/3600.) & (phot['Dec']>=float(cmdargs[3])-matchr/3600.) & (phot['Dec']<=float(cmdargs[5])+matchr/3600.)]
+                    catdata=phot[(phot['RA']>=r1) & (phot['RA']<=r2) & (phot['Dec']>=d1) & (phot['Dec']<=d2)]
                 else:
                     catdata=phot[(phot['RA']>=float(cmdargs[2])-matchr/3600.) & (phot['RA']<=float(cmdargs[4])+matchr/3600.) & (phot['Dec']>=float(cmdargs[3])-matchr/3600.) & (phot['Dec']<=float(cmdargs[5])+matchr/3600.)]
+                if (verbosity>=70):
+                    print ("After trim:",len(phot))
             if (len(catdata)>0):
                 if (verbosity >=50):
                     print ("Queried",catname,"- found",len(catdata[0]),"objects ->",photprocfile)
@@ -2192,7 +2309,7 @@ def get_area_data(cmdargs,cats,outdir):
     return
 
 # -----------------------------------------------------------------------------
-def get_sed_multiple(method="",ra1=0.,ra2=0.):
+def get_sed_multiple(method="",ra1=0.,ra2=0.,dec1=0.,dec2=0.):
     # Generate a set of SEDs from spatially overlapping data
     # - Get data from Gaia
     # - Get data from CDS
@@ -2310,11 +2427,16 @@ def get_sed_multiple(method="",ra1=0.,ra2=0.):
         trimbox=int(pyssedsetupdata[pyssedsetupdata[:,0]=="TrimBox",1][0])
         if (trimbox>0):
             if (verbosity>50):
-                print ("Trimming box edges to fit RA limits")
+                print ("Trimming box edges to fit RA amd Dec limits",ra1,ra2,dec1,dec2)
+            if (verbosity>60):
+                print ("Currently:",len(compiledseds))
             ras=np.array([a[0][3] for a in compiledanc])
-            compiledseds=compiledseds[(ras>=ra1) & (ras<ra2)]
-            compiledanc=compiledanc[(ras>=ra1) & (ras<ra2)]
-            sourcedata=sourcedata[(ras>=ra1) & (ras<ra2)]
+            decs=np.array([a[1][3] for a in compiledanc])
+            compiledseds=compiledseds[(ras>=ra1) & (ras<=ra2) & (decs>=dec1) & (decs<=dec2)]
+            compiledanc=compiledanc[(ras>=ra1) & (ras<=ra2) & (decs>=dec1) & (decs<=dec2)]
+            sourcedata=sourcedata[(ras>=ra1) & (ras<=ra2) & (decs>=dec1) & (decs<=dec2)]
+            if (verbosity>60):
+                print ("Now:",len(compiledseds))
 
     return compiledseds,compiledanc,sourcedata
 
@@ -2752,8 +2874,8 @@ def compile_areaseds(seds,weights,photdata,ancs,ancweights,ancdata,ra1=0.,ra2=0.
     defaulterr=float(pyssedsetupdata[pyssedsetupdata[:,0]=="DefaultError",1][0])
 
     # Reject criteria if wavelength too short or long
-    minlambda=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MinLambda",1])*10000.
-    maxlambda=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MaxLambda",1])*10000.
+    minlambda=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MinLambda",1][0])*10000.
+    maxlambda=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MaxLambda",1][0])*10000.
     
     # Get the ID columns for each catalogue
     idcol=np.empty(len(orderedcats),dtype=object)
@@ -2815,7 +2937,7 @@ def compile_areaseds(seds,weights,photdata,ancs,ancweights,ancdata,ra1=0.,ra2=0.
                     #print (data.dtype.names)
                     mag,magerr,flux,ferr,mask=get_mag_flux(data,fdata,zpt,reject_reasons)
                     # If the fractional error in the flux is sufficiently small
-                    if (flux>0):
+                    if ((flux>0) & (flux==flux+0)): # check for NaN
                         if (ferr/flux<fdata['maxperr']/100.):
                             sed[nfsuccess]=(catalogue,catid,(newra-sourcera)*3600.,(newdec-sourcedec)*3600.,(ra-sourcera)*3600.,(dec-sourcedec)*3600.,svokey,fdata['filtname'],wavel,dw,mag,magerr,flux,ferr,0,0,0,mask)
                             nfsuccess+=1
@@ -2940,7 +3062,11 @@ def get_gtomo_av(dist,ext_dist50,ext_av50):
     #elif (dist > max_est_dist25):
     else:
         f=interpolate.interp1d(ext_dist50,ext_av50)
-        av=f(dist)
+        try:
+            av=f(dist)
+        except ValueError:
+            print_warn ("An attempt was made to set an invalid Av at distance "+str(dist)+" pc")
+            av=0
     #else:
         #f=interpolate.interp1d(ext_dist25,ext_av25)
         #ebv=f(dist)
@@ -3043,6 +3169,8 @@ def adopt_distance(ancillary):
     usenodist=int(pyssedsetupdata[pyssedsetupdata[:,0]=="UseStarsWithNoDist",1][0])
     maxdisterr=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MaxDistError",1][0])
     defaultdist=float(pyssedsetupdata[pyssedsetupdata[:,0]=="DefaultDist",1][0])
+    wtlimit=float(pyssedsetupdata[pyssedsetupdata[:,0]=="AncWeightingLimit",1][0])
+    sigmalimit=float(pyssedsetupdata[pyssedsetupdata[:,0]=="AncSigmaLimit",1][0])
     
     # List parallaxes & distances
     # Do this in two stages to avoid numpy/python issues about bitwise/elementwise logic
@@ -3055,12 +3183,14 @@ def adopt_distance(ancillary):
     plxerr[plxerr!=plxerr] = 0
     plx=np.nan_to_num(plx,nan=0)
     plxerr=np.nan_to_num(plxerr,nan=0)
+    plxerr=plxerr[plx!=0]
+    plx=plx[plx!=0]
 
     # Convert to distance (with error floor)
     minerr=float(pyssedsetupdata[pyssedsetupdata[:,0]=="MinAncError",1][0])
     if isinstance(plx, np.ndarray): # if multiple parallaxes
-        if (len(plx)>0):
-            plx=plx[plx>0]
+        if (len(plx)!=0):
+            plx=plx[plx!=0]
             plxdist=1000./plx
             plxdisterr=plxerr/plx*plxdist
             plxdisterr=np.where(plxdisterr>0,plxdisterr,plxdist*minerr)
@@ -3068,7 +3198,7 @@ def adopt_distance(ancillary):
             plxdist=[]
             plxdisterr=[]
     else:
-        if (len(plx)>0.):
+        if (len(plx)!=0.):
             plxdist=1000./plx
             plxdisterr=plxerr/plx*plxdist
             plxdisterr=np.where(plxdisterr>0,plxdisterr,plxdist*minerr)
@@ -3076,22 +3206,13 @@ def adopt_distance(ancillary):
             plxdist=[]
             plxdisterr=[]
     
-#    try: # If one parallax
-#        if (plx>0.):
-#            plxdist=1000./plx
-#            plxdisterr=plxerr/plx*plxdist
-#            plxdisterr=np.where(plxdisterr>0,plxdisterr,plxdist*minerr)
-#        else:
-#            plxdist=[]
-#            plxdisterr=[]
-#    except ValueError:
     
         
 
     # Extract distances
     foo=ancillary[(ancillary['parameter']=="Distance")]
-    d=foo[(foo['mask']==True) & (foo['value']>0.)]['value']
-    derr=foo[(foo['mask']==True) & (foo['value']>0.)]['err']
+    d=foo[(foo['mask']==True) & (foo['value']!=0.)]['value']
+    derr=foo[(foo['mask']==True) & (foo['value']!=0.)]['err']
     if (verbosity >= 80):
         print (ancillary)
         print ("Plx:",plx,plxerr)
@@ -3099,7 +3220,7 @@ def adopt_distance(ancillary):
         print ("Dist[other]:",d,derr)
 
     # Identify if parallax or distance has higher priority and remove the other
-    if (len(d)>0) & (len(plxdist>0)):
+    if (len(d)>0) & (len(plxdist)>0):
         priplx=ancillary[(ancillary['parameter']=="Parallax")]['priority']
         pridist=ancillary[(ancillary['parameter']=="Distance")]['priority']
         if (np.min(priplx)>np.min(pridist)):
@@ -3110,34 +3231,81 @@ def adopt_distance(ancillary):
             if (verbosity>=98):
                 print ("Using parallax",priplx,pridist)
             d=[]
-   
+           
     # Now combine them by weighted error
-    derr=np.where(derr>0,derr,d*minerr)
+    derr=np.where(derr!=0,derr,d*minerr)
     if ((len(d)>0) & (len(plxdist)>0)):
         dd=np.append(d,plxdist,axis=0)
         dderr=np.append(derr,plxdisterr,axis=0)
+        # Check for limits
+        ferr=dderr/dd
+        ferr/=np.max(ferr)
+        dd=dd[ferr>wtlimit]
+        dderr=dderr[ferr>wtlimit]
+        minerr=np.min(dderr)
+        medd=np.median(dd)
+        sigma=(dd-medd)/minerr
+        dd=dd[sigma<sigmalimit]
+        dderr=dderr[sigma<sigmalimit]
+        if (verbosity>=98):
+            print ("dd,dderr,ferr:",dd,dderr,ferr)
         try:
             dist=np.average(dd,weights=1./dderr**2)
         except TypeError:
-            print_fail ("TypeError in adopt_distance")
+            print_fail ("TypeError in adopt_distance (distance + parallax)")
             weights=1./dderr**2
             print (dd,d,plxdist)
             print (dderr,derr,plxdisterr)
             print (weights)
             print (np.shape(dd),np.shape(weights))
             print (ancillary)
-            exit()
+            raise
         ferr=np.min(dderr/dd) # Compute minimum fractional error
     elif (len(d)>0):
-        dist=np.average(d,weights=1./derr**2)
+        try:
+            if (len(d)>1):
+                ferr=derr/d
+                ferr/=np.max(ferr)
+                d=d[ferr>wtlimit]
+                derr=derr[ferr>wtlimit]
+                minerr=np.min(derr)
+                medd=np.median(d)
+                sigma=(d-medd)/minerr
+                d=d[sigma<sigmalimit]
+                derr=derr[sigma<sigmalimit]
+            dist=np.average(d,weights=1./derr**2)
+        except TypeError:
+            print_fail ("TypeError in adopt_distance (distance)")
+            weights=1./derr**2
+            print (d,derr,weights)
+            print (np.shape(d),np.shape(weights))
+            print (ancillary)
+            raise
         ferr=np.min(derr/dist) # Compute minimum fractional error
     elif (len(plxdist)>0):
-        dist=np.average(plxdist,weights=1./plxdisterr**2)
+        try:
+            if (len(plxdist)>1):
+                ferr=plxdisterr/plxdist
+                ferr/=np.max(ferr)
+                plxdist=plxdist[ferr>wtlimit]
+                plxdisterr=plxdisterr[ferr>wtlimit]
+                minerr=np.min(plxdisterr)
+                medd=np.median(plxdist)
+                sigma=(plxdist-medd)/minerr
+                plxdist=plxdist[sigma<sigmalimit]
+                plxdisterr=plxdisterr[sigma<sigmalimit]
+            dist=np.average(plxdist,weights=1./plxdisterr**2)
+        except TypeError:
+            print_fail ("TypeError in adopt_distance (parallax)")
+            weights=1./plxdisterr**2
+            print (plxdist,plxdisterr,weights)
+            print (np.shape(plxdist),np.shape(weights))
+            print (ancillary)
+            raise
         ferr=np.min(plxerr/plx) # Compute minimum fractional error
     else:
         dist = defaultdist # Default to fixed distance
         ferr=1.
-    # XXX Needs coding for selection of best or weighted average
     # XXX Needs coding for return of errors
 
     if (ferr>maxdisterr):
@@ -3147,7 +3315,7 @@ def adopt_distance(ancillary):
             dist = 0.
 
     # List distances
-    if ((verbosity > 60) & (dist>0)):
+    if ((verbosity >= 70) & (dist>0)):
         print ("Adopted distance:",dist,"pc")
 
     return dist
@@ -3196,7 +3364,13 @@ def sed_fit_bb(sed,ancillary,avdata,ebv):
                 teff=optimize.minimize(chisq_model_with_extinction,modelstartteff,args=(np.array(["bb"]),priors,[],[],sed,avdata,ebv,modelstartlogg,modelstartfeh,modelstartafe),method='Nelder-Mead')['x'][0]
             else:
                 teff=optimize.minimize(chisq_model,modelstartteff,args=(freq,flux,ferr,np.array(["bb"]),priors,[],[]),method='Nelder-Mead')['x'][0]
-            
+
+            # Final model with all data points
+            wavel=sed['wavel']/1.e10
+            flux=sed['dered']
+            ferr=sed['derederr']
+            ferr=np.nan_to_num(ferr, nan=1.e6)
+            freq=299792458./wavel
             bb,fratio,chisq=compute_model(teff,freq,flux,ferr,np.array(["bb"]),priors,[],[])
         
         # Recompute after fitting with all data
@@ -3330,7 +3504,7 @@ def sed_fit_simple(sed,ancillary,modeldata,avdata,ebv):
             if (logg>np.max(modeldata['logg'])):
                 logg=np.max(modeldata['logg'])-0.01
             if (verbosity>80):
-                print ("Revised log g =",logg,"[",np.min(modeldata['logg']),np.max(modeldata['logg']),"]")
+                print ("Revised log g =",logg,"[",np.min(modeldata['logg']),np.max(modeldata['logg']),"] from mass",mass)
             if (modelstartteff<3000.):
                 modelstartteff=3000.
 
@@ -3381,6 +3555,9 @@ def sed_fit_simple(sed,ancillary,modeldata,avdata,ebv):
         # Lower tolerance here because refining fit done later after outlier rejection
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",message="invalid value encountered in subtract")
+            
+            if (verbosity>=90):
+                print ("Priors:",priors)
 
             if (fitebv>0): # Fit extinction and temperature
                 if (ebvoutliers==0): # Stop outlier fitting if fitting E(B-V)
@@ -3409,7 +3586,30 @@ def sed_fit_simple(sed,ancillary,modeldata,avdata,ebv):
 
         # If no good model can be identified, use a blackbody instead
         if ((np.isnan(chisq)) | (chisq>=1.e99)):
-            print_warn("Best-fitting model returned NaN - reverting to blackbody fit")
+            print_warn("Best-fitting model returned chisq error - reverting to blackbody fit")
+            if (verbosity>=80):
+                print ("Model used parameters:",teff,logg,feh,alphafe)
+            # Identify error
+            if (chisq==1.1e99):
+                print_warn("Best-fit temperature exceeds soft upper prior bound by more than 10 sigma")
+                print (teff, ">", priors[0]['max'],"+10*",priors[0]['maxerr'])
+            elif (chisq==1.2e99):
+                print_warn("Best-fit temperature exceeds hard upper prior bound")
+                print (teff, ">", priors[0]['max'])
+            elif (chisq==1.3e99):
+                print_warn("Best-fit temperature exceeds soft lower prior bound by more than 10 sigma")
+                print (teff, "<", priors[0]['min'],"+10*",priors[0]['minerr'])
+            elif (chisq==1.4e99):
+                print_warn("Best-fit temperature exceeds hard lower prior bound")
+                print (teff, "<", priors[0]['min'])
+            elif (chisq==1.5e99):
+                print_warn("Number of useable SED points is 0 or 1 - normally trapped earlier - check bad data rejection")
+            elif (chisq==1.6e99):
+                print_warn("A negative temperature was given")
+            elif (chisq==1.8e99):
+                print_warn("Sum of interpolated model data is zero - outside valid model range?")
+            elif ((chisq>1.8e99) & (chisq<9.99e99)):
+                print_warn("Unidentified chisq error coding")
             sed,modwave,modflux,teff,rad,lum,chisq=sed_fit_bb(sed[sed['mask']>0],ancillary,avdata,ebv)
             foo=np.zeros_like(sed['model']) # use of intermediate foo solves weird bug in sed[sed['mask']>0]['model']=modflux
             foo[sed['mask']>0]=modflux
@@ -3649,6 +3849,34 @@ def deredden2(sed,avdata,ebv,teff,logg,feh,afe):
         print ("If not, run 'python3 makemodel.py <name> [setup file]; python3 pyssed.py single '<any star name>' simple [setup file]; source shorten-model.scr'")
         raise
 
+    # Test for limits
+    minteff=np.min(modeldata['teff'])
+    if (teff<minteff):
+        teff=minteff+1
+    maxteff=np.max(modeldata['teff'])
+    if (teff>maxteff):
+        teff=maxteff-1
+    minlogg=np.min(modeldata['logg'])
+    if (logg<minlogg):
+        logg=minlogg+0.001
+    maxlogg=np.max(modeldata['logg'])
+    if (logg>maxlogg):
+        logg=maxlogg-0.001
+    minmetal=np.min(modeldata['metal'])
+    if (feh<minmetal):
+        feh=minmetal+0.001
+    maxmetal=np.max(modeldata['metal'])
+    if (feh>maxmetal):
+        feh=maxmetal-0.001
+    minalpha=np.min(modeldata['alpha'])
+    if (afe<minalpha):
+        afe=minalpha+0.001
+    maxalpha=np.max(modeldata['alpha'])
+    if (afe>maxalpha):
+        afe=maxalpha-0.001
+    if (verbosity>70):
+        print ("Dereddening using parameters:",teff,logg,feh,afe)
+
     foo,bar,selector=model_subset(oparams,ovalues,teff,logg,feh,afe)
     avsubset=avdata[:,selector]
     
@@ -3673,8 +3901,13 @@ def deredden2(sed,avdata,ebv,teff,logg,feh,afe):
         np.put(sed[:]['dered'],(sed['mask']>0).nonzero(),dered)
         np.put(sed[:]['derederr'],(sed['mask']>0).nonzero(),derederr)
     except:
-        if (verbosity>80):
-            print_warn ("Assigning interpolated values failed (e.g., because outside range)")
+        if (verbosity>=70):
+            print_warn ("Deredden: assigning interpolated values failed (e.g., because outside range)")
+            print ("Teff,log(g),[Fe/H],[a/Fe]:",teff,logg,feh,afe)
+            print ("Limits:",minteff,maxteff,minlogg,maxlogg,minmetal,maxmetal,minalpha,maxalpha)
+            print ("Avs:",avs)
+            print ("interpav:",interpav)
+        raise
 
     now=datetime.now()
     elapsed=((now-start).seconds+(now-start).microseconds/1000000.)
@@ -3790,7 +4023,7 @@ def chisq_model_with_extinction(teff,modeltype,priors,params,values,sed,avdata,e
     elif ((ebv!=deredden2_ebv) | (np.abs(teff-deredden2_teff)>deredtol/ebv)):
         sed=deredden2(sed,avdata,ebv,np.squeeze(teff),logg,feh,afe)
     elif (verbosity>97):
-        print ("Not updating dereddening",teff,"~",deredden2_teff)
+        print ("Not updating dereddening",teff,"~",deredden2_teff,"(",np.abs(teff-deredden2_teff),">",deredtol/ebv)
     sed['derederr']=sed['ferr']*sed['dered']/sed['flux']
     wavel=sed[sed['mask']>0]['wavel']/1.e10
     flux=sed[sed['mask']>0]['dered']
@@ -3914,7 +4147,13 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
             warnings.filterwarnings("ignore", message="invalid value encountered in log10")
             model=np.log10(interp_data_points)
         if (np.sum(interp_data_points)==0):
-            return interp_data_points,1.,9e99
+            if (verbosity>=90):
+                print_warn ("Sum of interpolated model data is zero:")
+                print (interp_data_points)
+                print ("cutparams",cutparams)
+                print ("cutvalues",cutvalues)
+                print ("teff,logg,feh,alphafe",teff,logg,feh,alphafe)
+            return interp_data_points,1.,1.8e99
         #if (verbosity>=98):
         #    print (interp_data_points)
         #if (verbosity>=99):
@@ -3931,6 +4170,7 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
         flux=np.log10(flux)
         offset=np.median(flux-model)
         model+=offset
+        model=np.where(((model==-np.inf) | (model==np.inf)),10,model) # fixes +/-inf
     if (verbosity>=99):
         print ("log model",model)
         print ("log flux",flux)
@@ -3953,38 +4193,57 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
                 #1/exp([log10(lambda)-log10(0.002898 m K/ T_eff)]^2/sigma^2)^power
                 if (verbosity>=99):
                     print ("wt:",wt)
-            wtsum=np.sum(wt)
-            chisq=np.sum((flux-model)**2*wt)/((n-1)*wtsum)
+            wtsum=np.sum(wt[flux==flux])
+            chisq=np.sum((flux[flux==flux]-model[flux==flux])**2*wt[flux==flux])/((n-1)*wtsum)
             #chisq=np.sum((flux-model)**2)/(n-1) # Set unity weighting for all data
-    else:
-        chisq=9.e99
+    else: # leave a diagnostic in the chisq
+        if (n<=1):
+            chisq=1.5e99
+        elif (teff<=0):
+            chisq=1.6e99
+        else:
+            chisq=1.7e99
 
     #if (verbosity>=95):
     #    print ("     Chisq =            ",chisq)
 
     # Apply weighting penalty from temperature prior
-    if (len(priors)>0):
+    if ((len(priors)>0) & (priors[0]['min']>3) & (chisq<1.e99)): # Prior temperature must exist and be above CMB
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",message="divide by zero encountered in double_scalars")
+            warnings.filterwarnings("ignore",message="divide by zero encountered in scalar divide")
             warnings.filterwarnings("ignore",message="invalid value encountered in subtract")
             oldchisq=chisq
             # Upper temperature limit
+            if (verbosity>=97):
+                print ("chisq",chisq)
+                print ("Applying temp. priors: from",priors[0]['min'],"-err",priors[0]['minerr'],"to",priors[0]['max'],"+err",priors[0]['maxerr'])
             if (priors[0]['maxerr']>0.):
-                prioruppersigma=(teff-priors[0]['max'])/priors[0]['maxerr']
-                if (prioruppersigma>10.):
-                    chisq/=(erf(prioruppersigma)+1.)/2.
+                prioruppersigma=(priors[0]['max']-teff)/priors[0]['maxerr']
+                if (prioruppersigma<5.):
+                    if (prioruppersigma>=-5.):
+                        if (verbosity>=97):
+                            print ("prioruppersigma,(erf(prioruppersigma)+1.)/2.",prioruppersigma,(erf(prioruppersigma)+1.)/2.)
+                        chisq/=(erf(prioruppersigma)+1.)/2.
+                    else:
+                        chisq=1.1e99
             elif (priors[0]['max']>teff):
-                chisq=1.e99
+                chisq=1.2e99
             # Lower temperature limit
-            if (priors[0]['maxerr']>0.):
-                priorlowersigma=(priors[0]['min']-teff)/priors[0]['minerr']
-                if (priorlowersigma>10.):
-                    chisq/=(erf(priorlowersigma)+1.)/2.
+            if (priors[0]['minerr']>0.):
+                priorlowersigma=(teff-priors[0]['min'])/priors[0]['minerr']
+                if (priorlowersigma<5):
+                    if (priorlowersigma>=-5.):
+                        if (verbosity>=97):
+                            print ("priorlowersigma,(erf(prioruppersigma)+1.)/2.",priorlowersigma,(erf(priorlowersigma)+1.)/2.)
+                        chisq/=(erf(priorlowersigma)+1.)/2.
+                    else:
+                        chisq=1.3e99
             elif (priors[0]['min']<teff):
-                chisq=1.e99
+                chisq=1.4e99
 
     if (verbosity>=90):
-        print ("Teff,chisq =",teff,chisq)
+        print ("[",modeltype[0],"] Teff,chisq =",teff,chisq)
 #        if (chisq==np.nan):
 #            exit()
 
@@ -4856,9 +5115,11 @@ def excesslumplot(plotfile,compiledseds,compiledanc,teff):
             # Having to manually set y-axis limits on some plots for unknown reasons
             #axs[v,w].set_ylim(ymin=-5,ymax=4)
             # Fudge to trigger ylim setting
-            axs[v,w].scatter(1,-3,s=0,c="#FFFFFF00",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
+            #axs[v,w].scatter(1,-3,s=0,c="#FFFFFF00",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
+            axs[v,w].scatter(1,-3,s=0,c="#FFFFFF00",edgecolors='none')
             axs[v,w].scatter(plotdata[v,w,plotdata[v,w,:,2]>0,0],np.log10(plotdata[v,w,plotdata[v,w,:,2]>0,1]),s=ptsize,c=np.log10(plotdata[v,w,plotdata[v,w,:,2]>0,2]),cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
-            axs[v,w].scatter(plotdata[v,w,plotdata[v,w,:,2]<0,0],np.log10(plotdata[v,w,plotdata[v,w,:,2]<0,1]),s=ptsize,c="#AAFFAA77",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
+            #axs[v,w].scatter(plotdata[v,w,plotdata[v,w,:,2]<0,0],np.log10(plotdata[v,w,plotdata[v,w,:,2]<0,1]),s=ptsize,c="#AAFFAA77",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
+            axs[v,w].scatter(plotdata[v,w,plotdata[v,w,:,2]<0,0],np.log10(plotdata[v,w,plotdata[v,w,:,2]<0,1]),s=ptsize,c="#AAFFAA77",edgecolors='none')
  
     # Save the file
     if (verbosity>=80):
@@ -4934,7 +5195,8 @@ def excessspaceplot(plotfile,compiledseds,compiledanc,teff):
                 pdata=plotdata[v,w,(plotdata[v,w,:,2]>=0),:]
                 axs[v,w].scatter(pdata[:,0],pdata[:,1],s=ptsize,c=np.log10(pdata[:,2]),cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
                 pdata=plotdata[v,w,(plotdata[v,w,:,2]==0),:]
-                axs[v,w].scatter(pdata[:,0],pdata[:,1],s=ptsize,c="#00FF00AA",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
+                #axs[v,w].scatter(pdata[:,0],pdata[:,1],s=ptsize,c="#00FF00AA",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
+                axs[v,w].scatter(pdata[:,0],pdata[:,1],s=ptsize,c="#00FF00AA",edgecolors='none')
                 axs[v,w].set_xlim(axs[v,w].get_xlim()[::-1])
                 #axs[v,w].scatter(plotdata[v,w,plotdata[v,w,:,2]<0,0],np.log10(plotdata[v,w,plotdata[v,w,:,2]<0,1]),s=ptsize,c="#AAFFAA77",cmap=newcmp,edgecolors='none',vmin=tmin,vmax=tmax)
  
@@ -5142,7 +5404,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240320"
+    version="1.1.dev.20240809"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
@@ -5239,12 +5501,12 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
     # Get stellar atmosphere model data and extinction corrections at start of run, if needed
     if (proctype=="simple"):
         modeldata=get_model_grid()
-    if (proctype!="none"):
-        avcorrtype=int(pyssedsetupdata[pyssedsetupdata[:,0]=="ExtCorrDetail",1][0])
-        if (avcorrtype>0):
-            avdata=get_av_grid()
-        else:
-            avdata=[]
+#    if (proctype!="none"):
+    avcorrtype=int(pyssedsetupdata[pyssedsetupdata[:,0]=="ExtCorrDetail",1][0])
+    if (avcorrtype>0):
+        avdata=get_av_grid()
+    else:
+        avdata=[]
     fitebv=int(pyssedsetupdata[pyssedsetupdata[:,0]=="FitEBV",1][0])
     if (fitebv>0):
         print_warn ("Warning! FitEBV is currently untested. Do not use for scientific results.")
@@ -5290,7 +5552,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
         if (cmdtype!="box"):
             compiledseds,compiledanc,sourcedata=get_sed_multiple()
         else: # Extra parameters to deal with TrimBox
-            compiledseds,compiledanc,sourcedata=get_sed_multiple(method="box",ra1=float(cmdargs[2]),ra2=float(cmdargs[4]))
+            compiledseds,compiledanc,sourcedata=get_sed_multiple(method="box",ra1=float(cmdargs[2]),ra2=float(cmdargs[4]),dec1=float(cmdargs[3]),dec2=float(cmdargs[5]))
 
         if (outappend>0 and usepreviousrun<=4):
             if (verbosity >=50):
@@ -5511,7 +5773,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
         except TypeError: # only one object
             nobjects=1
             sourcedata=np.expand_dims(sourcedata,axis=0)
-            print (len(sourcedata))
+            #print (len(sourcedata))
         if (verbosity>=20):
             print ("Processing",nobjects,"objects")
         if (nobjects==0):
@@ -5521,7 +5783,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                 print_warn ("No objects to process in this region.")
 
         mindatapoints=int(pyssedsetupdata[pyssedsetupdata[:,0]=="MinDataPoints",1][0])
-            
+
         for counter, source in enumerate(sourcedata):
             if (handler != None):
                 handler.submit_status(task_id, "processing", { "stage": 2, "stages": 4, "status": f"Processing source {source}", "progress": (3 + 1) / total_steps, "step": (3 + counter + 1), "totalSteps": total_steps })
@@ -5594,8 +5856,8 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                     if (extmap=="GTomo"): # GTomo done outside deredden() so execution not repeated
                         gtomo_reextract=False
                         if (searchtype=="area"):
-                            dra=float(reducto(ra))-float(ext_ra)
-                            ddec=float(reducto(dec))-float(ext_dec)
+                            dra=float(reducto(ra))-float(reducto(ext_ra))
+                            ddec=float(reducto(dec))-float(reducto(ext_dec))
                             if ((dra>extmaxangle) | (ddec>extmaxangle)):
                                 gtomo_reextract=True
                             if (verbosity >=70):
@@ -5721,7 +5983,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                         fracerr=modelledsed['derederr']/modelledsed['model']
                         ruwe=np.average(np.abs(oe)/fracerr)
                         gof=np.median(np.abs(oe))
-                        uvsed=truesed[modelledsed['wavel']<4000.]
+                        uvsed=modelledsed[modelledsed['wavel']<4000.]
                         if (len(uvsed)>0):
                             uvxs=np.average(uvsed['dered']/uvsed['model']-1)
                         else:
@@ -5746,7 +6008,8 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                 else:
                     print_warn ("Could not fit data for this object")
             else:
-                print_warn ("Invalid distance - abandoning fit for this object (check MaxDistError="+str(maxdisterr)+")")
+                if (verbosity>30):
+                    print_warn ("Invalid distance - abandoning fit for this object (check MaxDistError="+str(maxdisterr)+")")
             if (speedtest):
                 print ("Fitted SED:",datetime.now()-startsource,"s")
 
