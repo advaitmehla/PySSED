@@ -2215,11 +2215,11 @@ def get_area_data(cmdargs,cats,outdir):
             a=(r2+r1)/2.
             d=(d2+d1)/2.
         else:
-            d1=0.; d2=0.; w=0.; h=0.; d=0.
+            d1=0.; d2=0.; w=0.; h=0.; a=0.; d=0.
 
         # Get fudge factors to add to dec additions to account for curvature
         # Faster than doing spherical trig
-        if (trimbox>0):
+        if ((trimbox>0) & ((cmdargs[1]=="rectangle") | (cmdargs[1]=="box"))):
             noffset=0.
             soffset=0.
             if (d2>0.):
@@ -3504,7 +3504,7 @@ def sed_fit_simple(sed,ancillary,modeldata,avdata,ebv):
             if (logg>np.max(modeldata['logg'])):
                 logg=np.max(modeldata['logg'])-0.01
             if (verbosity>80):
-                print ("Revised log g =",logg,"[",np.min(modeldata['logg']),np.max(modeldata['logg']),"]")
+                print ("Revised log g =",logg,"[",np.min(modeldata['logg']),np.max(modeldata['logg']),"] from mass",mass)
             if (modelstartteff<3000.):
                 modelstartteff=3000.
 
@@ -3587,6 +3587,8 @@ def sed_fit_simple(sed,ancillary,modeldata,avdata,ebv):
         # If no good model can be identified, use a blackbody instead
         if ((np.isnan(chisq)) | (chisq>=1.e99)):
             print_warn("Best-fitting model returned chisq error - reverting to blackbody fit")
+            if (verbosity>=80):
+                print ("Model used parameters:",teff,logg,feh,alphafe)
             # Identify error
             if (chisq==1.1e99):
                 print_warn("Best-fit temperature exceeds soft upper prior bound by more than 10 sigma")
@@ -4191,8 +4193,8 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
                 #1/exp([log10(lambda)-log10(0.002898 m K/ T_eff)]^2/sigma^2)^power
                 if (verbosity>=99):
                     print ("wt:",wt)
-            wtsum=np.sum(wt[flux>0])
-            chisq=np.sum((flux[flux>0]-model[flux>0])**2*wt[flux>0])/((n-1)*wtsum)
+            wtsum=np.sum(wt[flux==flux])
+            chisq=np.sum((flux[flux==flux]-model[flux==flux])**2*wt[flux==flux])/((n-1)*wtsum)
             #chisq=np.sum((flux-model)**2)/(n-1) # Set unity weighting for all data
     else: # leave a diagnostic in the chisq
         if (n<=1):
@@ -4206,7 +4208,7 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
     #    print ("     Chisq =            ",chisq)
 
     # Apply weighting penalty from temperature prior
-    if ((len(priors)>0) & (priors[0]['min']>3)): # Prior temperature must exist and be above CMB
+    if ((len(priors)>0) & (priors[0]['min']>3) & (chisq<1.e99)): # Prior temperature must exist and be above CMB
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",message="divide by zero encountered in double_scalars")
             warnings.filterwarnings("ignore",message="divide by zero encountered in scalar divide")
@@ -4241,7 +4243,7 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
                 chisq=1.4e99
 
     if (verbosity>=90):
-        print ("Teff,chisq =",teff,chisq)
+        print ("[",modeltype[0],"] Teff,chisq =",teff,chisq)
 #        if (chisq==np.nan):
 #            exit()
 
@@ -5402,7 +5404,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240702"
+    version="1.1.dev.20240809"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
@@ -5499,12 +5501,12 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
     # Get stellar atmosphere model data and extinction corrections at start of run, if needed
     if (proctype=="simple"):
         modeldata=get_model_grid()
-    if (proctype!="none"):
-        avcorrtype=int(pyssedsetupdata[pyssedsetupdata[:,0]=="ExtCorrDetail",1][0])
-        if (avcorrtype>0):
-            avdata=get_av_grid()
-        else:
-            avdata=[]
+#    if (proctype!="none"):
+    avcorrtype=int(pyssedsetupdata[pyssedsetupdata[:,0]=="ExtCorrDetail",1][0])
+    if (avcorrtype>0):
+        avdata=get_av_grid()
+    else:
+        avdata=[]
     fitebv=int(pyssedsetupdata[pyssedsetupdata[:,0]=="FitEBV",1][0])
     if (fitebv>0):
         print_warn ("Warning! FitEBV is currently untested. Do not use for scientific results.")
