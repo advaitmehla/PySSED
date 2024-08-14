@@ -5404,7 +5404,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240809"
+    version="1.1.dev.20240814"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
@@ -5601,6 +5601,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
     ancillary_params=np.append(ancillary_params,np.unique(ancillary_queries['paramname']),axis=0)
     outputmasked=int(pyssedsetupdata[pyssedsetupdata[:,0]=="OutputMasked",1][0])
     sep=np.array2string(pyssedsetupdata[pyssedsetupdata[:,0]=="OutputSeparator",1])[2:-2]
+    maxattempts=int(pyssedsetupdata[pyssedsetupdata[:,0]=="ServerRetries",1][0])
     if (sep=="\\\\t"):
         sep="\t"
     if (sep=="\\\\n"):
@@ -6216,7 +6217,25 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 #                masteroutputdata=np.concatenate((objectlist,masterlist.astype(str),mastererror.astype(str),fittedlist,fittederror,adoptedlist,adoptederror,fluxlist,ferrlist,deredlist,modellist,vallist,errlist,srclist.astype(str)))
                 masteroutputdata=np.concatenate((objectlist,masterlist.astype(str),mastererror.astype(str),fittedlist,fittederror,adoptedlist,adoptederror,statlist,objlist,fluxlist,ferrlist,deredlist,modellist,vallist,errlist,srclist))
                 with open(outmasterfile, "a") as f:
-                    f.write(sep.join(str(x) for x in masteroutputdata)+"\n")
+                    attempts = 0
+                    while attempts < maxattempts:
+                        try:
+                            f.write(sep.join(str(x) for x in masteroutputdata)+"\n")
+                            break
+                        except:
+                            attempts += 1
+                            print_warn ("Could not write to master output file (attempt "+str(attempts)+" of "+str(maxattempts)+") [main PySSED loop]")
+                            try: # wait for server to clear
+                                time.sleep(attempts**2)
+                            except: # if time not installed don't wait
+                                pass
+                    if (attempts==maxattempts):
+                        print_fail ("Could not write to master output file")
+                        print_fail ("Filename =",outmasterfile)
+                        raise Exception("Could not write to master output file")
+
+
+
                 if (handler != None):
                     mastercsv = convert_master_file(outmasterfile)
                     results["masteroutput.csv"] = mastercsv
