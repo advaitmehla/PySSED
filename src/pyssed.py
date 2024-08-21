@@ -2073,6 +2073,9 @@ def merge_sed(sed):
             else:
                 if (verbosity>50):
                     print ("Cannot be merged (sigma limit exceeded)")
+        else:
+            if (verbosity>90):
+                print ("Nothing to do for",filt)
         # If there are still multiple observations in one filter, choose the first one
         if (len(sed[(sed['svoname']==filt) & (sed['mask']==True)])>1):
             if (verbosity>80):
@@ -3233,7 +3236,8 @@ def adopt_distance(ancillary):
             d=[]
            
     # Now combine them by weighted error
-    derr=np.where(derr!=0,derr,d*minerr)
+    if ((len(d)>0) & (len(derr)>0)):
+        derr=np.where(derr!=0,derr,d*minerr)
     if ((len(d)>0) & (len(plxdist)>0)):
         dd=np.append(d,plxdist,axis=0)
         dderr=np.append(derr,plxdisterr,axis=0)
@@ -3406,6 +3410,12 @@ def sed_fit_trapezoid(sed,ancillary,avdata,ebv):
     flux1m=sed[sed['mask']>0]['dered'][0]*10**((np.log(sed[sed['mask']>0]['wavel'][0]))*-2) # R-J tail
     wavel=np.append(np.append(np.array(1e-10),sed[sed['mask']>0]['wavel']/1.e10),np.array(1))
     flux=np.append(np.append(np.array(flux1A),sed[sed['mask']>0]['dered']),np.array(flux1m))
+    # Sort indices so that integration progresses properly
+    waveinds = wavel.argsort()
+    sorted_wave = wavel[waveinds]
+    sorted_flux = flux[waveinds]
+    wavel=sorted_wave
+    flux=sorted_flux
     #ferr=sed[sed['mask']>0]['derederr']
     #ferr=np.nan_to_num(ferr, nan=1.e6)
     #freq=299792458./wavel
@@ -3416,10 +3426,14 @@ def sed_fit_trapezoid(sed,ancillary,avdata,ebv):
         modelflux=10**np.interp(modelwavel,np.log10(wavel),np.log10(flux))
         modelfreq=299792458./10**modelwavel
         # Integrate
-        bolflux=np.trapz(modelflux,modelfreq) # Jy*Hz = 10^26 W/m^2
+        bolflux=np.trapz(modelflux,x=modelfreq) # Jy*Hz = 10^26 W/m^2
         # Multiply by distance
         lum=bolflux*4*np.pi*(dist*3.086e16)**2/1.e26 # Watts
         lum/=3.846e26 # solar luminosities
+        if (verbosity>70):
+            print ("Bolometric flux:",bolflux,"Jy Hz")
+            print ("Bolometric flux:",bolflux /1e26,"W/m^2")
+            print ("Luminosity:",lum,"solar luminosities")
     else: # If no distance
         lum=0.
 
@@ -3842,6 +3856,9 @@ def deredden2(sed,avdata,ebv,teff,logg,feh,afe):
     try:
         # Values aren't actually used in this instance - only to get the selector of which grid points are needed
         ovalues=np.array(modeldata[sed[sed['mask']>0]['svoname']].tolist())
+    except ValueError:
+        print_fail ("ValueError when extracting extinction models!")
+        raise
     except KeyError:
         print_fail ("KeyError when extracting extinction models!")
         print ("This can occur if additional filters have been introduced that have not been convolved with the models.")
@@ -5404,7 +5421,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240814"
+    version="1.1.dev.20240821"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
@@ -5840,17 +5857,51 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
             if (speedtest):
                 print ("SED creation:",datetime.now()-startsource,"s")
 
-            # Merge/deredden SED and test for bad data
+            # Merge duplicated filters in SED and test for bad data
+            try:
+                if (len(sed)>0):
+                    sed=merge_sed(sed)
+                else:
+                    if (verbosity>30):
+                        print_warn ("No data in SED")
+            except TypeError:
+                if (verbosity>=30):
+                    print_warn (mastercat+" source ID: "+str(source)+" failed due to bad or no data in SED")
+                if (verbosity>=70):
+                    print (sed)
+                    pass
+            except UnboundLocalError:
+                print_fail ("ERROR! SED not defined.")
+                if (usepreviousrun > 0):
+                    print_fail ("This may be because you are trying to use pre-existing photometry that doesn't exist.")
+                    print_fail ("Try setting 'UsePreviousRun 0' in the setup file.")
+                raise
+
+            # Merge duplicated items in ancillary data and test for bad data
+            try:
+                if (len(ancillary)>0):
+                    ancillary=merge_ancillary(ancillary)
+                else:
+                    if (verbosity>30):
+                        print_warn ("No ancillary data")
+            except TypeError:
+                if (verbosity>=30):
+                    print_warn (mastercat+" source ID: "+str(source)+" failed due to bad or no ancillary data")
+                if (verbosity>=70):
+                    print (ancillary)
+                    pass
+            except UnboundLocalError:
+                print_fail ("ERROR! Ancillary data not defined.")
+                if (usepreviousrun > 0):
+                    print_fail ("This may be because you are trying to use pre-existing photometry that doesn't exist.")
+                    print_fail ("Try setting 'UsePreviousRun 0' in the setup file.")
+                raise
+
+            # Deredden
             ebv=0
             dist=0
             try:
                 if (len(sed)>0):
-                    # Merge duplicated filters in SED
-                    sed=merge_sed(sed)
-                    # Merge ancillary data to produce final values
-                    ancillary=merge_ancillary(ancillary)
-
-                    # Deredden
                     ra=ancillary[(ancillary['parameter']=='RA') & (ancillary['mask']==True)]['value']
                     dec=ancillary[(ancillary['parameter']=='Dec') & (ancillary['mask']==True)]['value']
                     dist=adopt_distance(ancillary)
@@ -5887,19 +5938,15 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                     elif (verbosity>=50):
                         print ("SED contains",len(sed),"points")
                     pass
-            except TypeError:
-                if (verbosity>=30):
-                    print_warn (mastercat+" source ID: "+str(source)+" failed due to bad or no data")
+            except TypeError as e:
+                print_fail ("TypeError in dereddening")
                 if (verbosity>=70):
                     print (sed)
                     print (ancillary)
-                    pass
-            except UnboundLocalError:
-                print_fail ("ERROR! SED not defined.")
-                if (usepreviousrun > 0):
-                    print_fail ("This may be because you are trying to use pre-existing photometry that doesn't exist.")
-                    print_fail ("Try setting 'UsePreviousRun 0' in the setup file.")
+                print (e)
                 raise
+
+
             if (speedtest):
                 print ("Merge and deredden:",datetime.now()-startsource,"s")
 
