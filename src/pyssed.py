@@ -3244,8 +3244,6 @@ def adopt_distance(ancillary):
         # Check for limits
         ferr=dd/dderr
         ferr/=np.max(ferr)
-        if (verbosity>98):
-            print ("dd,dderr,ferr,1/wtlimit:",dd,dderr,ferr,wtlimit)
         dd=dd[ferr>wtlimit]
         dderr=dderr[ferr>wtlimit]
         minerr=np.min(dderr)
@@ -3270,7 +3268,7 @@ def adopt_distance(ancillary):
     elif (len(d)>0):
         try:
             if (len(d)>1):
-                ferr=derr/d
+                ferr=d/derr
                 ferr/=np.max(ferr)
                 d=d[ferr>wtlimit]
                 derr=derr[ferr>wtlimit]
@@ -3291,7 +3289,7 @@ def adopt_distance(ancillary):
     elif (len(plxdist)>0):
         try:
             if (len(plxdist)>1):
-                ferr=plxdisterr/plxdist
+                ferr=plxdist/plxdisterr
                 ferr/=np.max(ferr)
                 plxdist=plxdist[ferr>wtlimit]
                 plxdisterr=plxdisterr[ferr>wtlimit]
