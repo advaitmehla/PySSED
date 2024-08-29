@@ -3242,8 +3242,10 @@ def adopt_distance(ancillary):
         dd=np.append(d,plxdist,axis=0)
         dderr=np.append(derr,plxdisterr,axis=0)
         # Check for limits
-        ferr=dderr/dd
+        ferr=dd/dderr
         ferr/=np.max(ferr)
+        if (verbosity>98):
+            print ("dd,dderr,ferr,1/wtlimit:",dd,dderr,ferr,wtlimit)
         dd=dd[ferr>wtlimit]
         dderr=dderr[ferr>wtlimit]
         minerr=np.min(dderr)
@@ -4129,7 +4131,7 @@ def compute_model(teff,freq,flux,ferr,modeltype,priors,params,valueselector):
         # 2 * pi * 1"^2 / 206265^2 = 1 / 6771274157.32
         # 2*h/c^2 = 1.47449944e-50 kg s
         # h/k_B = 4.79924466e-11 K s
-        # 1.47449944e-50 kg s / 6771274157.32 K s * 1e26 Jy/K = 2.1775805e-34 Jy kg
+        # 1.47449944e-50 kg s / 6771274157.32 K s * 1e26 Jy / [W/m^2/Hz] = 2.1775805e-34 Jy kg
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",message="overflow encountered in exp")
             warnings.filterwarnings("ignore",message="divide by zero encountered in log10")
@@ -5421,7 +5423,7 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
 
     # Main routine
     errmsg=""
-    version="1.1.dev.20240821"
+    version="1.1.dev.20240829"
     try:
         startmain = datetime.now() # time object
         globaltime=startmain
