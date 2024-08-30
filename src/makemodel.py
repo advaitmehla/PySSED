@@ -89,6 +89,8 @@ def makemodel(model,setupfile):
         minw[i]=np.min(filttable['Wavelength'])
         maxw[i]=np.max(filttable['Wavelength'])
 
+    exit()
+
     try:
         time0=datetime.now()
     except:
