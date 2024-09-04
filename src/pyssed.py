@@ -1444,6 +1444,7 @@ def get_vizier_single(cmdparams,sourcedata):
                 newra,newdec=extract_ra_dec(vizier_data[0])
                 newra=reducto(newra) # Only take the first entry
                 newdec=reducto(newdec)
+            print(vizier_data)
         elif (ancillary_queries[i]['server']=="File"):
             datafile=ancillary_queries[i]['cdstable']
             anc=np.genfromtxt(datafile, delimiter='\t', names=True)
@@ -3454,7 +3455,6 @@ def sed_fit_simple(sed,ancillary,modeldata,avdata,ebv):
     # - Either assume mass or generate using estimate_mass
     # - Perform a simple parametric fit
     # - Return parameters, goodness of fit and residual excess/deficit
-    
     dist=adopt_distance(ancillary)
     #foo=ancillary[(ancillary['parameter']=="Distance")]
     #dist=np.squeeze(foo[(foo['mask']==True)]['value'])
@@ -5931,7 +5931,12 @@ def pyssed(cmdtype,cmdparams,proctype,procparams,setupfile,handler,total_sources
                         #input_ebv=get_gtomo_ebv(dist,ext_dist50,ext_av50,ext_dist25,ext_av25)
                     else:
                         input_ebv=0.
+                    for filter in sed:
+                        if filter[0] == "Cryoscope":
+                            print("Cryoscope data found in SED, setting mask false")
+                            filter[-1] = False
                     sed,ebv=deredden(sed,ancillary,dist,avdata,input_ebv)
+
                     
                     if ((verbosity>=97) or (verbosity>=70 and searchtype=="single")):
                         print (sed)

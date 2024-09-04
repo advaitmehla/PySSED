@@ -5,7 +5,7 @@
 # (e.g. don't introduce whitespace on end of lines, etc.)
 
 # Set the amount of chatter (0 = silent; 10-70 = typical; 99 = debug)
-verbosity	30
+verbosity	50
 
 # Default epoch to use for Gaia (Gaia EDR3 = 2016.0)
 GaiaEpoch	2016.0
@@ -174,7 +174,7 @@ CmdArgsFile	../proc/last_cmd.npy
 
 # Master output file
 SaveMasterOutput	1
-MasterOutputFile	../output/output.dat
+MasterOutputFile	../output/output.tsv
 
 # Include masked values in master output?
 OutputMasked	0
@@ -328,7 +328,7 @@ WeightOffset	0.05
 # > python3 pyssed.py single "Betelgeuse" simple
 ModelCode	bt-settl
 # If the following limits are changed then the grid needs recomputed 
-RecomputeModelGrid	1
+RecomputeModelGrid	0
 # Restrict models to those between these temperatures, log(g), [Fe/H] and [alpha/Fe]
 # This can improve speed
 #ModelTeffLo	1899.
